@@ -24,11 +24,18 @@
 #include <com/sun/star/lang/XMultiServiceFactory.hpp>
 #include <com/sun/star/frame/XModel.hpp>
 #include <com/sun/star/document/XDocumentPropertiesSupplier.hpp>
+#include <com/sun/star/document/XFilter.hpp>
+#include <com/sun/star/document/XImporter.hpp>
+#include <com/sun/star/io/XInputStream.hpp>
 #include <com/sun/star/io/XOutputStream.hpp>
+#include <com/sun/star/io/XSeekable.hpp>
+#include <com/sun/star/lang/XMultiComponentFactory.hpp>
 #include <com/sun/star/text/XText.hpp>
 #include <com/sun/star/container/XIndexAccess.hpp>
 #include <com/sun/star/table/XTable.hpp>
 #include <com/sun/star/style/ParagraphAdjust.hpp>
+
+#include <unotools/mediadescriptor.hxx>
 
 #include <cmath>
 #include <cstdio>
@@ -135,8 +142,37 @@ OUString VisioExport::getImplementationName()
 
 bool VisioExport::importDocument() noexcept
 {
-    // Export-only filter
-    return false;
+    // Save As/Save a Copy only offers filters which support both import and
+    // export. Delegate the import side to LibreOffice's existing Visio filter
+    // so this service can safely be advertised in those dialogs as well.
+    try
+    {
+        const auto& xContext = getComponentContext();
+        css::uno::Reference<css::uno::XInterface> xImportService(
+            xContext->getServiceManager()->createInstanceWithContext(
+                u"com.sun.star.comp.Draw.VisioImportFilter"_ustr, xContext));
+        css::uno::Reference<css::document::XImporter> xImporter(
+            xImportService, css::uno::UNO_QUERY_THROW);
+        css::uno::Reference<css::document::XFilter> xFilter(
+            xImportService, css::uno::UNO_QUERY_THROW);
+
+        // XmlFilterBase has already inspected the package through this stream.
+        // Rewind it before handing it to the writerperfect Visio importer.
+        css::uno::Reference<css::io::XInputStream> xInputStream
+            = getMediaDescriptor().getUnpackedValueOrDefault(
+                utl::MediaDescriptor::PROP_INPUTSTREAM,
+                css::uno::Reference<css::io::XInputStream>());
+        css::uno::Reference<css::io::XSeekable> xSeekable(xInputStream, css::uno::UNO_QUERY);
+        if (xSeekable.is())
+            xSeekable->seek(0);
+
+        xImporter->setTargetDocument(getModel());
+        return xFilter->filter(getMediaDescriptor().getAsConstPropertyValueList());
+    }
+    catch (...)
+    {
+        return false;
+    }
 }
 
 bool VisioExport::exportDocument()
