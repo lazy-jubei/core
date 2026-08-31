@@ -13,6 +13,7 @@
 #include <rtl/ustrbuf.hxx>
 
 #include <com/sun/star/awt/Point.hpp>
+#include <com/sun/star/drawing/PolyPolygonBezierCoords.hpp>
 #include <com/sun/star/text/XText.hpp>
 
 #include <utility>
@@ -117,6 +118,10 @@ private:
     Geometry MakePointsGeometry(
         const css::uno::Sequence<css::uno::Sequence<css::awt::Point>>& rPointSequences,
         double fWidthInches, double fHeightInches, bool bCloseSubpaths) const;
+    Geometry MakeBezierGeometry(
+        const css::drawing::PolyPolygonBezierCoords& rBezier,
+        double fWidthInches, double fHeightInches, bool bCloseSubpaths,
+        const css::awt::Point& rCoordinateOrigin) const;
 
     sal_uInt32 mnNextShapeId;
 };

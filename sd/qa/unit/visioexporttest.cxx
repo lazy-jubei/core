@@ -17,6 +17,8 @@
 #include <com/sun/star/container/XEnumerationAccess.hpp>
 #include <com/sun/star/drawing/XDrawPage.hpp>
 #include <com/sun/star/drawing/XDrawPagesSupplier.hpp>
+#include <com/sun/star/drawing/PolygonFlags.hpp>
+#include <com/sun/star/drawing/PolyPolygonBezierCoords.hpp>
 #include <com/sun/star/drawing/XShape.hpp>
 #include <com/sun/star/drawing/XShapeGrouper.hpp>
 #include <com/sun/star/drawing/XShapes.hpp>
@@ -457,6 +459,109 @@ CPPUNIT_TEST_FIXTURE(SdVisioExportTest, testPolyLineGeometry)
     assertXPath(pXml,
                 sGeomXPath
                     + "/*[local-name()='Row'][3]/*[local-name()='Cell' and @N='Y']",
+                "V", u"0");
+}
+
+CPPUNIT_TEST_FIXTURE(SdVisioExportTest, testConnectorRouteGeometry)
+{
+    createSdDrawDoc();
+    css::uno::Reference<drawing::XShape> xShape(
+        createShape(mxComponent, getPage(0), "com.sun.star.drawing.ConnectorShape"));
+    setPosSize(xShape, 1000, 1000, 5000, 3000);
+
+    // The computed connector route is exposed in absolute page coordinates.
+    // Preserve all three bends rather than replacing the connector with a
+    // rectangle around its bounding box.
+    drawing::PolyPolygonBezierCoords aRoute;
+    aRoute.Coordinates = { css::uno::Sequence<awt::Point>(
+        { awt::Point(1000, 1000), awt::Point(3000, 1000),
+          awt::Point(3000, 4000), awt::Point(6000, 4000) }) };
+    aRoute.Flags = { css::uno::Sequence<drawing::PolygonFlags>(
+        { drawing::PolygonFlags_NORMAL, drawing::PolygonFlags_NORMAL,
+          drawing::PolygonFlags_NORMAL, drawing::PolygonFlags_NORMAL }) };
+    css::uno::Reference<beans::XPropertySet> xShapeProperties(
+        xShape, css::uno::UNO_QUERY_THROW);
+    xShapeProperties->setPropertyValue(u"PolyPolygonBezier"_ustr,
+                                        css::uno::Any(aRoute));
+
+    saveAsVisio();
+    xmlDocUniquePtr pXml = parsePage1();
+
+    assertXPath(pXml, "//*[local-name()='Shape'][1]", "Type", u"Connector");
+    assertXPath(pXml, sGeomXPath + "/*[local-name()='Row']", 4);
+    assertXPath(pXml, sGeomXPath + "/*[local-name()='Row'][1]", "T", u"RelMoveTo");
+    for (int nRow = 2; nRow <= 4; ++nRow)
+    {
+        const OString sRowXPath
+            = sGeomXPath + "/*[local-name()='Row'][" + OString::number(nRow) + "]";
+        assertXPath(pXml, sRowXPath, "T", u"RelLineTo");
+    }
+    assertXPath(pXml,
+                sGeomXPath
+                    + "/*[local-name()='Row'][2]/*[local-name()='Cell' and @N='X']",
+                "V", u"0.4");
+    assertXPath(pXml,
+                sGeomXPath
+                    + "/*[local-name()='Row'][2]/*[local-name()='Cell' and @N='Y']",
+                "V", u"1");
+    assertXPath(pXml,
+                sGeomXPath
+                    + "/*[local-name()='Row'][3]/*[local-name()='Cell' and @N='X']",
+                "V", u"0.4");
+    assertXPath(pXml,
+                sGeomXPath
+                    + "/*[local-name()='Row'][3]/*[local-name()='Cell' and @N='Y']",
+                "V", u"0");
+}
+
+CPPUNIT_TEST_FIXTURE(SdVisioExportTest, testBezierRouteGeometry)
+{
+    createSdDrawDoc();
+    css::uno::Reference<drawing::XShape> xShape(
+        createShape(mxComponent, getPage(0), "com.sun.star.drawing.OpenBezierShape"));
+    setPosSize(xShape, 1000, 1000, 2000, 2000);
+
+    drawing::PolyPolygonBezierCoords aBezier;
+    aBezier.Coordinates = { css::uno::Sequence<awt::Point>(
+        { awt::Point(0, 0), awt::Point(500, 0),
+          awt::Point(1500, 2000), awt::Point(2000, 2000) }) };
+    aBezier.Flags = { css::uno::Sequence<drawing::PolygonFlags>(
+        { drawing::PolygonFlags_NORMAL, drawing::PolygonFlags_CONTROL,
+          drawing::PolygonFlags_CONTROL, drawing::PolygonFlags_NORMAL }) };
+    css::uno::Reference<beans::XPropertySet> xShapeProperties(
+        xShape, css::uno::UNO_QUERY_THROW);
+    xShapeProperties->setPropertyValue(u"Geometry"_ustr,
+                                        css::uno::Any(aBezier));
+
+    saveAsVisio();
+    xmlDocUniquePtr pXml = parsePage1();
+
+    assertXPath(pXml, sGeomXPath + "/*[local-name()='Row']", 2);
+    assertXPath(pXml, sGeomXPath + "/*[local-name()='Row'][1]", "T", u"RelMoveTo");
+    assertXPath(pXml, sGeomXPath + "/*[local-name()='Row'][2]", "T", u"RelCubBezTo");
+    assertXPath(pXml,
+                sGeomXPath
+                    + "/*[local-name()='Row'][2]/*[local-name()='Cell' and @N='X']",
+                "V", u"1");
+    assertXPath(pXml,
+                sGeomXPath
+                    + "/*[local-name()='Row'][2]/*[local-name()='Cell' and @N='Y']",
+                "V", u"0");
+    assertXPath(pXml,
+                sGeomXPath
+                    + "/*[local-name()='Row'][2]/*[local-name()='Cell' and @N='A']",
+                "V", u"0.25");
+    assertXPath(pXml,
+                sGeomXPath
+                    + "/*[local-name()='Row'][2]/*[local-name()='Cell' and @N='B']",
+                "V", u"1");
+    assertXPath(pXml,
+                sGeomXPath
+                    + "/*[local-name()='Row'][2]/*[local-name()='Cell' and @N='C']",
+                "V", u"0.75");
+    assertXPath(pXml,
+                sGeomXPath
+                    + "/*[local-name()='Row'][2]/*[local-name()='Cell' and @N='D']",
                 "V", u"0");
 }
 
