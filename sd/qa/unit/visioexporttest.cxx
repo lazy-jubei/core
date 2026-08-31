@@ -13,6 +13,7 @@
 #include <com/sun/star/awt/Size.hpp>
 #include <com/sun/star/beans/XPropertySet.hpp>
 #include <com/sun/star/drawing/XDrawPage.hpp>
+#include <com/sun/star/drawing/XDrawPagesSupplier.hpp>
 #include <com/sun/star/drawing/XShape.hpp>
 #include <com/sun/star/drawing/XShapes.hpp>
 #include <com/sun/star/frame/XStorable.hpp>
@@ -120,6 +121,28 @@ CPPUNIT_TEST_FIXTURE(SdVisioExportTest, testEllipseGeometry)
                 sGeomXPath
                     + "/*[local-name()='Row'][1]/*[local-name()='Cell' and @N='D']",
                 "V", u"0");
+}
+
+CPPUNIT_TEST_FIXTURE(SdVisioExportTest, testCombinedFilterCanImportExportedVsdx)
+{
+    createSdDrawDoc();
+    css::uno::Reference<drawing::XShape> xShape(
+        createShape(mxComponent, getPage(0), "com.sun.star.drawing.RectangleShape"));
+    setPosSize(xShape, 1000, 1000, 2540, 1270);
+
+    saveAsVisio();
+    dispose();
+
+    const css::uno::Sequence<beans::PropertyValue> aArgs{
+        comphelper::makePropertyValue("FilterName", OUString("Visio VSDX")),
+    };
+    loadFromURL(maTempFile.GetURL(), aArgs);
+
+    css::uno::Reference<drawing::XDrawPagesSupplier> xDrawPagesSupplier(
+        mxComponent, css::uno::UNO_QUERY_THROW);
+    CPPUNIT_ASSERT_EQUAL(sal_Int32(1), xDrawPagesSupplier->getDrawPages()->getCount());
+    css::uno::Reference<drawing::XShapes> xShapes(getPage(0), css::uno::UNO_QUERY_THROW);
+    CPPUNIT_ASSERT_EQUAL(sal_Int32(1), xShapes->getCount());
 }
 
 CPPUNIT_TEST_FIXTURE(SdVisioExportTest, testLineGeometry)

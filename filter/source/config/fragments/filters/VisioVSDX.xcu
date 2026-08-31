@@ -6,7 +6,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
 -->
 <node oor:name="Visio VSDX" oor:op="replace">
-    <prop oor:name="Flags"><value>EXPORT ALIEN 3RDPARTYFILTER</value></prop>
+    <prop oor:name="Flags"><value>IMPORT EXPORT ALIEN 3RDPARTYFILTER</value></prop>
     <prop oor:name="UIComponent"/>
     <prop oor:name="FilterService"><value>com.sun.star.comp.Draw.VisioExportFilter</value></prop>
     <prop oor:name="UserData"/>
