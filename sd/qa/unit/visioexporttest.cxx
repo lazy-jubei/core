@@ -15,10 +15,12 @@
 #include <com/sun/star/drawing/XDrawPage.hpp>
 #include <com/sun/star/drawing/XDrawPagesSupplier.hpp>
 #include <com/sun/star/drawing/XShape.hpp>
+#include <com/sun/star/drawing/XShapeGrouper.hpp>
 #include <com/sun/star/drawing/XShapes.hpp>
 #include <com/sun/star/frame/XStorable.hpp>
 #include <com/sun/star/lang/XComponent.hpp>
 #include <com/sun/star/lang/XMultiServiceFactory.hpp>
+#include <com/sun/star/text/XText.hpp>
 #include <comphelper/propertyvalue.hxx>
 
 using namespace ::com::sun::star;
@@ -143,6 +145,53 @@ CPPUNIT_TEST_FIXTURE(SdVisioExportTest, testCombinedFilterCanImportExportedVsdx)
     CPPUNIT_ASSERT_EQUAL(sal_Int32(1), xDrawPagesSupplier->getDrawPages()->getCount());
     css::uno::Reference<drawing::XShapes> xShapes(getPage(0), css::uno::UNO_QUERY_THROW);
     CPPUNIT_ASSERT_EQUAL(sal_Int32(1), xShapes->getCount());
+}
+
+CPPUNIT_TEST_FIXTURE(SdVisioExportTest, testGroupChildrenKeepFillAndText)
+{
+    createSdDrawDoc();
+    css::uno::Reference<drawing::XDrawPage> xPage(getPage(0));
+
+    css::uno::Reference<drawing::XShape> xRectangle(
+        createShape(mxComponent, xPage, "com.sun.star.drawing.RectangleShape"));
+    setPosSize(xRectangle, 1000, 1000, 4000, 2000);
+    css::uno::Reference<beans::XPropertySet> xRectangleProperties(
+        xRectangle, css::uno::UNO_QUERY_THROW);
+    xRectangleProperties->setPropertyValue(u"FillColor"_ustr,
+                                            css::uno::Any(sal_Int32(0x8db1e2)));
+
+    css::uno::Reference<drawing::XShape> xTextShape(
+        createShape(mxComponent, xPage, "com.sun.star.drawing.TextShape"));
+    setPosSize(xTextShape, 1500, 1500, 3000, 1000);
+    css::uno::Reference<text::XText> xText(xTextShape, css::uno::UNO_QUERY_THROW);
+    xText->setString(u"Grouped label"_ustr);
+    css::uno::Reference<beans::XPropertySet> xTextProperties(
+        xTextShape, css::uno::UNO_QUERY_THROW);
+    xTextProperties->setPropertyValue(u"CharColor"_ustr,
+                                      css::uno::Any(sal_Int32(0xff0000)));
+
+    css::uno::Reference<drawing::XShapeGrouper> xGrouper(
+        xPage, css::uno::UNO_QUERY_THROW);
+    css::uno::Reference<drawing::XShapes> xPageShapes(xPage, css::uno::UNO_QUERY_THROW);
+    CPPUNIT_ASSERT(xGrouper->group(xPageShapes).is());
+    CPPUNIT_ASSERT_EQUAL(sal_Int32(1), xPageShapes->getCount());
+
+    saveAsVisio();
+    xmlDocUniquePtr pXml = parsePage1();
+
+    // A Draw group is a container.  Its two visual children must be exported,
+    // rather than one blank rectangle standing in for the group.
+    assertXPath(pXml, "//*[local-name()='Shapes']/*[local-name()='Shape']", 2);
+    assertXPath(pXml,
+                "//*[local-name()='Shape']/*[local-name()='Cell' and @N='FillForegnd' and @V='#8db1e2']",
+                1);
+    assertXPathContent(pXml, "//*[local-name()='Shape']/*[local-name()='Text']",
+                       u"Grouped label");
+    assertXPath(pXml,
+                "//*[local-name()='Shape'][*[local-name()='Text' and text()='Grouped label']]"
+                "/*[local-name()='Section' and @N='Character']/*[local-name()='Row']"
+                "/*[local-name()='Cell' and @N='Color']",
+                "V", u"#ff0000");
 }
 
 CPPUNIT_TEST_FIXTURE(SdVisioExportTest, testLineGeometry)

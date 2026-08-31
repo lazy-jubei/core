@@ -46,6 +46,7 @@ private:
         double mfBottomMarginInches;
         sal_Int32 mnHorizontalAlign;
         sal_Int32 mnVerticalAlign;
+        OUString maColor = u"#000000"_ustr;
     };
 
     // One VSDX Geometry section row, e.g. a RelMoveTo or RelLineTo. Cell
