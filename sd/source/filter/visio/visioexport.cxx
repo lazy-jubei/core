@@ -22,6 +22,8 @@
 #include <com/sun/star/drawing/FillStyle.hpp>
 #include <com/sun/star/drawing/LineStyle.hpp>
 #include <com/sun/star/drawing/LineDash.hpp>
+#include <com/sun/star/drawing/PolygonFlags.hpp>
+#include <com/sun/star/drawing/PolyPolygonBezierCoords.hpp>
 #include <com/sun/star/drawing/TextVerticalAdjust.hpp>
 #include <com/sun/star/beans/XPropertySet.hpp>
 #include <com/sun/star/lang/XMultiServiceFactory.hpp>
@@ -136,6 +138,23 @@ getUntransformedPoints(const css::uno::Reference<css::beans::XPropertySet>& xPro
         }
     }
     return aPoints;
+}
+
+css::drawing::PolyPolygonBezierCoords getBezierPoints(
+    const css::uno::Reference<css::beans::XPropertySet>& xProperties,
+    const OUString& rPropertyName)
+{
+    css::drawing::PolyPolygonBezierCoords aBezier;
+    if (!xProperties.is())
+        return aBezier;
+    try
+    {
+        xProperties->getPropertyValue(rPropertyName) >>= aBezier;
+    }
+    catch (const css::uno::Exception&)
+    {
+    }
+    return aBezier;
 }
 
 } // anonymous namespace
@@ -876,6 +895,28 @@ void VisioExport::WriteShapeToBuilder(OUStringBuffer& rBuilder,
         if (aGeometry.empty())
             aGeometry = MakeRectangleGeometry();
     }
+    else if (sServiceName == u"com.sun.star.drawing.OpenBezierShape"_ustr
+             || sServiceName == u"com.sun.star.drawing.ClosedBezierShape"_ustr)
+    {
+        // Geometry is the untransformed, shape-local Bezier path.
+        aGeometry = MakeBezierGeometry(
+            getBezierPoints(xProperties, u"Geometry"_ustr), fWidth, fHeight,
+            sServiceName == u"com.sun.star.drawing.ClosedBezierShape"_ustr,
+            css::awt::Point());
+        if (aGeometry.empty())
+            aGeometry = MakeRectangleGeometry();
+    }
+    else if (sServiceName == u"com.sun.star.drawing.ConnectorShape"_ustr)
+    {
+        // PolyPolygonBezier is the connector's computed route, including all
+        // routing bends and curve controls.  Connector coordinates are page
+        // coordinates, unlike the local Geometry property of polygon shapes.
+        aGeometry = MakeBezierGeometry(
+            getBezierPoints(xProperties, u"PolyPolygonBezier"_ustr),
+            fWidth, fHeight, false, aPos);
+        if (aGeometry.empty())
+            aGeometry = MakeRectangleGeometry();
+    }
     else
     {
         aGeometry = MakeRectangleGeometry();
@@ -1269,6 +1310,102 @@ VisioExport::MakePointsGeometry(
                 aGeometry.push_back(
                     { u"RelLineTo"_ustr,
                       { { u"X"_ustr, fmtDouble(fRelX) }, { u"Y"_ustr, fmtDouble(fRelY) } } });
+            }
+        }
+    }
+    return aGeometry;
+}
+
+VisioExport::Geometry VisioExport::MakeBezierGeometry(
+    const css::drawing::PolyPolygonBezierCoords& rBezier,
+    double fWidthInches, double fHeightInches, bool bCloseSubpaths,
+    const css::awt::Point& rCoordinateOrigin) const
+{
+    // PolyPolygonBezierCoords encodes a cubic segment as two CONTROL points
+    // followed by its endpoint.  RelCubBezTo uses the same two controls and
+    // endpoint, with every coordinate relative to the shape width/height.
+    Geometry aGeometry;
+    const sal_Int32 nSequenceCount = rBezier.Coordinates.getLength();
+    for (sal_Int32 nSequence = 0; nSequence < nSequenceCount; ++nSequence)
+    {
+        const auto& rPoints = rBezier.Coordinates[nSequence];
+        const sal_Int32 nPointCount = rPoints.getLength();
+        if (nPointCount < 2)
+            continue;
+
+        const bool bHaveFlags = nSequence < rBezier.Flags.getLength()
+                                && rBezier.Flags[nSequence].getLength() == nPointCount;
+        const auto toRelative = [&](const css::awt::Point& rPoint) {
+            const double fLocalX = (rPoint.X - rCoordinateOrigin.X) * LO_TO_INCHES;
+            const double fLocalY = (rPoint.Y - rCoordinateOrigin.Y) * LO_TO_INCHES;
+            return std::pair<double, double>(
+                fWidthInches > 0.0 ? fLocalX / fWidthInches : 0.5,
+                fHeightInches > 0.0 ? 1.0 - fLocalY / fHeightInches : 0.5);
+        };
+
+        const auto [fStartX, fStartY] = toRelative(rPoints[0]);
+        aGeometry.push_back(
+            { u"RelMoveTo"_ustr,
+              { { u"X"_ustr, fmtDouble(fStartX) },
+                { u"Y"_ustr, fmtDouble(fStartY) } } });
+
+        sal_Int32 nPoint = 1;
+        while (nPoint < nPointCount)
+        {
+            const bool bCubic
+                = bHaveFlags && nPoint + 2 < nPointCount
+                  && rBezier.Flags[nSequence][nPoint]
+                         == css::drawing::PolygonFlags_CONTROL
+                  && rBezier.Flags[nSequence][nPoint + 1]
+                         == css::drawing::PolygonFlags_CONTROL
+                  && rBezier.Flags[nSequence][nPoint + 2]
+                         != css::drawing::PolygonFlags_CONTROL;
+            if (bCubic)
+            {
+                const auto [fControl1X, fControl1Y] = toRelative(rPoints[nPoint]);
+                const auto [fControl2X, fControl2Y] = toRelative(rPoints[nPoint + 1]);
+                const auto [fEndX, fEndY] = toRelative(rPoints[nPoint + 2]);
+                aGeometry.push_back(
+                    { u"RelCubBezTo"_ustr,
+                      { { u"X"_ustr, fmtDouble(fEndX) },
+                        { u"Y"_ustr, fmtDouble(fEndY) },
+                        { u"A"_ustr, fmtDouble(fControl1X) },
+                        { u"B"_ustr, fmtDouble(fControl1Y) },
+                        { u"C"_ustr, fmtDouble(fControl2X) },
+                        { u"D"_ustr, fmtDouble(fControl2Y) } } });
+                nPoint += 3;
+                continue;
+            }
+
+            // A well-formed cubic consumes its control points above.  Ignore a
+            // stray control flag rather than drawing a visible kink through it.
+            if (bHaveFlags
+                && rBezier.Flags[nSequence][nPoint]
+                       == css::drawing::PolygonFlags_CONTROL)
+            {
+                ++nPoint;
+                continue;
+            }
+
+            const auto [fRelX, fRelY] = toRelative(rPoints[nPoint]);
+            aGeometry.push_back(
+                { u"RelLineTo"_ustr,
+                  { { u"X"_ustr, fmtDouble(fRelX) },
+                    { u"Y"_ustr, fmtDouble(fRelY) } } });
+            ++nPoint;
+        }
+
+        if (bCloseSubpaths)
+        {
+            const bool bAlreadyClosed
+                = rPoints[nPointCount - 1].X == rPoints[0].X
+                  && rPoints[nPointCount - 1].Y == rPoints[0].Y;
+            if (!bAlreadyClosed)
+            {
+                aGeometry.push_back(
+                    { u"RelLineTo"_ustr,
+                      { { u"X"_ustr, fmtDouble(fStartX) },
+                        { u"Y"_ustr, fmtDouble(fStartY) } } });
             }
         }
     }
