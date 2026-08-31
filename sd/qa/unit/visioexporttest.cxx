@@ -11,7 +11,10 @@
 
 #include <com/sun/star/awt/Point.hpp>
 #include <com/sun/star/awt/Size.hpp>
+#include <com/sun/star/awt/FontWeight.hpp>
 #include <com/sun/star/beans/XPropertySet.hpp>
+#include <com/sun/star/container/XEnumeration.hpp>
+#include <com/sun/star/container/XEnumerationAccess.hpp>
 #include <com/sun/star/drawing/XDrawPage.hpp>
 #include <com/sun/star/drawing/XDrawPagesSupplier.hpp>
 #include <com/sun/star/drawing/XShape.hpp>
@@ -20,7 +23,9 @@
 #include <com/sun/star/frame/XStorable.hpp>
 #include <com/sun/star/lang/XComponent.hpp>
 #include <com/sun/star/lang/XMultiServiceFactory.hpp>
+#include <com/sun/star/style/ParagraphAdjust.hpp>
 #include <com/sun/star/text/XText.hpp>
+#include <com/sun/star/text/XTextCursor.hpp>
 #include <comphelper/propertyvalue.hxx>
 
 using namespace ::com::sun::star;
@@ -192,6 +197,121 @@ CPPUNIT_TEST_FIXTURE(SdVisioExportTest, testGroupChildrenKeepFillAndText)
                 "/*[local-name()='Section' and @N='Character']/*[local-name()='Row']"
                 "/*[local-name()='Cell' and @N='Color']",
                 "V", u"#ff0000");
+}
+
+CPPUNIT_TEST_FIXTURE(SdVisioExportTest, testTextRunFormatting)
+{
+    createSdDrawDoc();
+    css::uno::Reference<drawing::XShape> xTextShape(
+        createShape(mxComponent, getPage(0), "com.sun.star.drawing.TextShape"));
+    setPosSize(xTextShape, 1000, 1000, 6000, 2000);
+    css::uno::Reference<text::XText> xText(xTextShape, css::uno::UNO_QUERY_THROW);
+    xText->setString(u"Red\nBlue"_ustr);
+
+    css::uno::Reference<text::XTextCursor> xRed(xText->createTextCursor());
+    xRed->gotoStart(false);
+    CPPUNIT_ASSERT(xRed->goRight(3, true));
+    css::uno::Reference<beans::XPropertySet> xRedProperties(
+        xRed, css::uno::UNO_QUERY_THROW);
+    xRedProperties->setPropertyValue(u"CharColor"_ustr,
+                                     css::uno::Any(sal_Int32(0xff0000)));
+    xRedProperties->setPropertyValue(u"CharHeight"_ustr, css::uno::Any(8.0f));
+    xRedProperties->setPropertyValue(u"CharFontName"_ustr,
+                                     css::uno::Any(u"Consolas"_ustr));
+    xRedProperties->setPropertyValue(u"CharWeight"_ustr,
+                                     css::uno::Any(awt::FontWeight::BOLD));
+
+    css::uno::Reference<text::XTextCursor> xBlue(xText->createTextCursor());
+    xBlue->gotoEnd(false);
+    CPPUNIT_ASSERT(xBlue->goLeft(4, true));
+    css::uno::Reference<beans::XPropertySet> xBlueProperties(
+        xBlue, css::uno::UNO_QUERY_THROW);
+    xBlueProperties->setPropertyValue(u"CharColor"_ustr,
+                                      css::uno::Any(sal_Int32(0x0000ff)));
+    xBlueProperties->setPropertyValue(u"CharHeight"_ustr, css::uno::Any(16.0f));
+
+    css::uno::Reference<container::XEnumerationAccess> xParagraphAccess(
+        xText, css::uno::UNO_QUERY_THROW);
+    css::uno::Reference<container::XEnumeration> xParagraphs(
+        xParagraphAccess->createEnumeration(), css::uno::UNO_SET_THROW);
+    css::uno::Reference<beans::XPropertySet> xRedParagraph(
+        xParagraphs->nextElement(), css::uno::UNO_QUERY_THROW);
+    xRedParagraph->setPropertyValue(
+        u"ParaAdjust"_ustr,
+        css::uno::Any(sal_Int16(style::ParagraphAdjust_CENTER)));
+    css::uno::Reference<beans::XPropertySet> xBlueParagraph(
+        xParagraphs->nextElement(), css::uno::UNO_QUERY_THROW);
+    xBlueParagraph->setPropertyValue(
+        u"ParaAdjust"_ustr,
+        css::uno::Any(sal_Int16(style::ParagraphAdjust_RIGHT)));
+
+    saveAsVisio();
+    xmlDocUniquePtr pXml = parsePage1();
+    const OString sTextShape = "//*[local-name()='Shape'][1]";
+
+    assertXPath(pXml,
+                sTextShape
+                    + "/*[local-name()='Section' and @N='Character']/*[local-name()='Row']",
+                2);
+    assertXPath(pXml,
+                sTextShape
+                    + "/*[local-name()='Section' and @N='Character']/*[local-name()='Row'][1]"
+                      "/*[local-name()='Cell' and @N='Font']",
+                "V", u"Consolas");
+    assertXPath(pXml,
+                sTextShape
+                    + "/*[local-name()='Section' and @N='Character']/*[local-name()='Row'][1]"
+                      "/*[local-name()='Cell' and @N='Color']",
+                "V", u"#ff0000");
+    assertXPath(pXml,
+                sTextShape
+                    + "/*[local-name()='Section' and @N='Character']/*[local-name()='Row'][1]"
+                      "/*[local-name()='Cell' and @N='Size']",
+                "V", u"0.1111111111111111");
+    assertXPath(pXml,
+                sTextShape
+                    + "/*[local-name()='Section' and @N='Character']/*[local-name()='Row'][1]"
+                      "/*[local-name()='Cell' and @N='Style']",
+                "V", u"1");
+    assertXPath(pXml,
+                sTextShape
+                    + "/*[local-name()='Section' and @N='Character']/*[local-name()='Row'][2]"
+                      "/*[local-name()='Cell' and @N='Color']",
+                "V", u"#0000ff");
+    assertXPath(pXml,
+                sTextShape
+                    + "/*[local-name()='Section' and @N='Character']/*[local-name()='Row'][2]"
+                      "/*[local-name()='Cell' and @N='Size']",
+                "V", u"0.2222222222222222");
+    assertXPath(pXml, sTextShape + "/*[local-name()='Text']/*[local-name()='cp']", 2);
+    assertXPath(pXml,
+                sTextShape + "/*[local-name()='Text']/*[local-name()='cp'][1]",
+                "IX", u"0");
+    assertXPath(pXml,
+                sTextShape + "/*[local-name()='Text']/*[local-name()='cp'][2]",
+                "IX", u"1");
+    assertXPathContent(pXml, sTextShape + "/*[local-name()='Text']", u"Red\nBlue");
+    assertXPath(pXml,
+                sTextShape
+                    + "/*[local-name()='Section' and @N='Paragraph']/*[local-name()='Row']",
+                2);
+    assertXPath(pXml,
+                sTextShape
+                    + "/*[local-name()='Section' and @N='Paragraph']/*[local-name()='Row'][1]"
+                      "/*[local-name()='Cell' and @N='HorzAlign']",
+                "V", u"1");
+    assertXPath(pXml,
+                sTextShape
+                    + "/*[local-name()='Section' and @N='Paragraph']/*[local-name()='Row'][2]"
+                      "/*[local-name()='Cell' and @N='HorzAlign']",
+                "V", u"2");
+    assertXPath(pXml, sTextShape + "/*[local-name()='Text']/*[local-name()='pp']", 2);
+    assertXPath(pXml,
+                sTextShape + "/*[local-name()='Text']/*[local-name()='pp'][1]",
+                "IX", u"0");
+    assertXPath(pXml,
+                sTextShape + "/*[local-name()='Text']/*[local-name()='pp'][2]",
+                "IX", u"1");
 }
 
 CPPUNIT_TEST_FIXTURE(SdVisioExportTest, testLineGeometry)
