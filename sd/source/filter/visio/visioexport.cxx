@@ -11,6 +11,9 @@
 
 #include <com/sun/star/awt/Size.hpp>
 #include <com/sun/star/awt/Point.hpp>
+#include <com/sun/star/awt/FontSlant.hpp>
+#include <com/sun/star/awt/FontUnderline.hpp>
+#include <com/sun/star/awt/FontWeight.hpp>
 #include <com/sun/star/drawing/XDrawPage.hpp>
 #include <com/sun/star/drawing/XDrawPages.hpp>
 #include <com/sun/star/drawing/XDrawPagesSupplier.hpp>
@@ -32,8 +35,11 @@
 #include <com/sun/star/lang/XMultiComponentFactory.hpp>
 #include <com/sun/star/text/XText.hpp>
 #include <com/sun/star/container/XIndexAccess.hpp>
+#include <com/sun/star/container/XEnumeration.hpp>
+#include <com/sun/star/container/XEnumerationAccess.hpp>
 #include <com/sun/star/table/XTable.hpp>
 #include <com/sun/star/style/ParagraphAdjust.hpp>
+#include <com/sun/star/text/XTextRange.hpp>
 
 #include <unotools/mediadescriptor.hxx>
 
@@ -91,6 +97,17 @@ OUString fmtDouble(double fVal)
     char buf[32];
     std::snprintf(buf, sizeof(buf), "%.16g", fVal);
     return OUString::createFromAscii(buf);
+}
+
+OUString escapeXml(const OUString& rText)
+{
+    OUString sEscaped = rText;
+    sEscaped = sEscaped.replaceAll(u"&"_ustr, u"&amp;"_ustr);
+    sEscaped = sEscaped.replaceAll(u"<"_ustr, u"&lt;"_ustr);
+    sEscaped = sEscaped.replaceAll(u">"_ustr, u"&gt;"_ustr);
+    sEscaped = sEscaped.replaceAll(u"\""_ustr, u"&quot;"_ustr);
+    sEscaped = sEscaped.replaceAll(u"'"_ustr, u"&apos;"_ustr);
+    return sEscaped;
 }
 
 // LineShape, PolyLineShape and PolyPolygonShape expose the PointSequenceSequence
@@ -517,6 +534,146 @@ void VisioExport::WritePageXml(sal_uInt32 nPageNum)
               aBuilder.makeStringAndClear());
 }
 
+void VisioExport::CollectTextRuns(
+    const css::uno::Reference<css::text::XText>& xText,
+    TextStyle& rTextStyle) const
+{
+    css::uno::Reference<css::container::XEnumerationAccess> xParagraphAccess(
+        xText, css::uno::UNO_QUERY);
+    if (!xParagraphAccess.is())
+        return;
+
+    try
+    {
+        css::uno::Reference<css::container::XEnumeration> xParagraphs(
+            xParagraphAccess->createEnumeration(), css::uno::UNO_SET_THROW);
+        while (xParagraphs->hasMoreElements())
+        {
+            css::uno::Any aParagraph = xParagraphs->nextElement();
+            css::uno::Reference<css::container::XEnumerationAccess> xPortionAccess(
+                aParagraph, css::uno::UNO_QUERY);
+            if (!xPortionAccess.is())
+                continue;
+
+            ParagraphStyle aParagraphStyle;
+            aParagraphStyle.mnHorizontalAlign = rTextStyle.mnHorizontalAlign;
+            css::uno::Reference<css::beans::XPropertySet> xParagraphProperties(
+                aParagraph, css::uno::UNO_QUERY);
+            if (xParagraphProperties.is())
+            {
+                sal_Int16 nParagraphAdjust
+                    = static_cast<sal_Int16>(css::style::ParagraphAdjust_LEFT);
+                if (xParagraphProperties->getPropertyValue(u"ParaAdjust"_ustr)
+                    >>= nParagraphAdjust)
+                {
+                    const auto eParagraphAdjust
+                        = static_cast<css::style::ParagraphAdjust>(nParagraphAdjust);
+                    if (eParagraphAdjust == css::style::ParagraphAdjust_CENTER)
+                        aParagraphStyle.mnHorizontalAlign = 1;
+                    else if (eParagraphAdjust == css::style::ParagraphAdjust_RIGHT)
+                        aParagraphStyle.mnHorizontalAlign = 2;
+                    else if (eParagraphAdjust == css::style::ParagraphAdjust_BLOCK)
+                        aParagraphStyle.mnHorizontalAlign = 3;
+                    else
+                        aParagraphStyle.mnHorizontalAlign = 0;
+                }
+            }
+            const sal_uInt32 nParagraphIndex = rTextStyle.maParagraphs.size();
+            rTextStyle.maParagraphs.push_back(aParagraphStyle);
+
+            css::uno::Reference<css::container::XEnumeration> xPortions(
+                xPortionAccess->createEnumeration(), css::uno::UNO_SET_THROW);
+            bool bFirstPortion = true;
+            while (xPortions->hasMoreElements())
+            {
+                css::uno::Reference<css::text::XTextRange> xTextRange(
+                    xPortions->nextElement(), css::uno::UNO_QUERY);
+                if (!xTextRange.is())
+                    continue;
+
+                TextRun aRun;
+                aRun.maText = xTextRange->getString();
+                aRun.mfFontSizeInches = rTextStyle.mfFontSizeInches;
+                aRun.maColor = rTextStyle.maColor;
+                aRun.mbParagraphStart = bFirstPortion;
+                aRun.mnParagraphIndex = nParagraphIndex;
+
+                css::uno::Reference<css::beans::XPropertySet> xRunProperties(
+                    xTextRange, css::uno::UNO_QUERY);
+                if (xRunProperties.is())
+                {
+                    float fCharHeight = 0.0f;
+                    if ((xRunProperties->getPropertyValue(u"CharHeight"_ustr)
+                         >>= fCharHeight)
+                        && fCharHeight > 0.0f)
+                    {
+                        aRun.mfFontSizeInches = fCharHeight / 72.0;
+                    }
+
+                    sal_Int32 nCharColor = -1;
+                    if ((xRunProperties->getPropertyValue(u"CharColor"_ustr)
+                         >>= nCharColor)
+                        && nCharColor >= 0)
+                    {
+                        aRun.maColor = colorToHexSimple(
+                            static_cast<sal_uInt32>(nCharColor));
+                    }
+
+                    OUString sFontName;
+                    if ((xRunProperties->getPropertyValue(u"CharFontName"_ustr)
+                         >>= sFontName)
+                        && !sFontName.isEmpty())
+                    {
+                        aRun.maFontName = sFontName;
+                    }
+
+                    float fCharWeight = css::awt::FontWeight::NORMAL;
+                    if ((xRunProperties->getPropertyValue(u"CharWeight"_ustr)
+                         >>= fCharWeight)
+                        && fCharWeight > css::awt::FontWeight::NORMAL)
+                    {
+                        aRun.mnStyle |= 1;
+                    }
+
+                    css::awt::FontSlant eCharPosture = css::awt::FontSlant_NONE;
+                    if ((xRunProperties->getPropertyValue(u"CharPosture"_ustr)
+                         >>= eCharPosture)
+                        && eCharPosture != css::awt::FontSlant_NONE)
+                    {
+                        aRun.mnStyle |= 2;
+                    }
+
+                    sal_Int16 nCharUnderline = css::awt::FontUnderline::NONE;
+                    if ((xRunProperties->getPropertyValue(u"CharUnderline"_ustr)
+                         >>= nCharUnderline)
+                        && nCharUnderline != css::awt::FontUnderline::NONE)
+                    {
+                        aRun.mnStyle |= 4;
+                    }
+                }
+
+                rTextStyle.maRuns.push_back(std::move(aRun));
+                bFirstPortion = false;
+            }
+            if (bFirstPortion)
+            {
+                TextRun aEmptyRun;
+                aEmptyRun.mfFontSizeInches = rTextStyle.mfFontSizeInches;
+                aEmptyRun.maColor = rTextStyle.maColor;
+                aEmptyRun.mbParagraphStart = true;
+                aEmptyRun.mnParagraphIndex = nParagraphIndex;
+                rTextStyle.maRuns.push_back(std::move(aEmptyRun));
+            }
+        }
+    }
+    catch (const css::uno::Exception&)
+    {
+        // Fall back to the shape-level text properties.
+        rTextStyle.maRuns.clear();
+        rTextStyle.maParagraphs.clear();
+    }
+}
+
 void VisioExport::WriteShapeToBuilder(OUStringBuffer& rBuilder,
                                        const css::uno::Reference<css::drawing::XShape>& xShape,
                                        double fPageHeight)
@@ -671,10 +828,12 @@ void VisioExport::WriteShapeToBuilder(OUStringBuffer& rBuilder,
         if (xProperties->getPropertyValue(u"TextLowerDistance"_ustr) >>= nMargin)
             aTextStyle.mfBottomMarginInches = nMargin * LO_TO_INCHES;
 
-        css::style::ParagraphAdjust eParagraphAdjust
-            = css::style::ParagraphAdjust_LEFT;
-        if (xProperties->getPropertyValue(u"ParaAdjust"_ustr) >>= eParagraphAdjust)
+        sal_Int16 nParagraphAdjust
+            = static_cast<sal_Int16>(css::style::ParagraphAdjust_LEFT);
+        if (xProperties->getPropertyValue(u"ParaAdjust"_ustr) >>= nParagraphAdjust)
         {
+            const auto eParagraphAdjust
+                = static_cast<css::style::ParagraphAdjust>(nParagraphAdjust);
             if (eParagraphAdjust == css::style::ParagraphAdjust_CENTER)
                 aTextStyle.mnHorizontalAlign = 1;
             else if (eParagraphAdjust == css::style::ParagraphAdjust_RIGHT)
@@ -697,6 +856,9 @@ void VisioExport::WriteShapeToBuilder(OUStringBuffer& rBuilder,
     catch (const css::uno::Exception&)
     {
     }
+
+    if (xText.is())
+        CollectTextRuns(xText, aTextStyle);
 
     // Select the VSDX geometry rows for this shape type.
     Geometry aGeometry;
@@ -815,6 +977,8 @@ bool VisioExport::WriteTableToBuilder(
                             static_cast<sal_uInt32>(nCharColor));
                     }
                 }
+                if (xCellText.is())
+                    CollectTextRuns(xCellText, aTextStyle);
 
                 const double fWidth = nColumnWidth * LO_TO_INCHES;
                 const double fHeight = nRowHeight * LO_TO_INCHES;
@@ -958,39 +1122,75 @@ void VisioExport::WriteRectangleToBuilder(
         rBuilder.append(OUString::number(rTextStyle.mnVerticalAlign));
         rBuilder.append(u"'/>");
 
-        rBuilder.append(u"<Section N='Character'><Row IX='0'>");
-        rBuilder.append(u"<Cell N='Font' V='Calibri'/>");
-        rBuilder.append(u"<Cell N='Color' V='");
-        rBuilder.append(rTextStyle.maColor);
-        rBuilder.append(u"'/>");
-        rBuilder.append(u"<Cell N='Style' V='0'/>");
-        rBuilder.append(u"<Cell N='Size' V='");
-        rBuilder.append(fmtDouble(rTextStyle.mfFontSizeInches));
-        rBuilder.append(u"'/>");
-        rBuilder.append(u"</Row></Section>");
-        rBuilder.append(u"<Section N='Paragraph'><Row IX='0'>");
-        rBuilder.append(u"<Cell N='IndFirst' V='0'/>");
-        rBuilder.append(u"<Cell N='IndLeft' V='0'/>");
-        rBuilder.append(u"<Cell N='IndRight' V='0'/>");
-        rBuilder.append(u"<Cell N='SpLine' V='-1.2'/>");
-        rBuilder.append(u"<Cell N='SpBefore' V='0'/>");
-        rBuilder.append(u"<Cell N='SpAfter' V='0'/>");
-        rBuilder.append(u"<Cell N='HorzAlign' V='");
-        rBuilder.append(OUString::number(rTextStyle.mnHorizontalAlign));
-        rBuilder.append(u"'/>");
-        rBuilder.append(u"<Cell N='Bullet' V='0'/>");
-        rBuilder.append(u"<Cell N='Flags' V='0'/>");
-        rBuilder.append(u"</Row></Section>");
-
-        // Escape text for XML
-        OUString sEscaped = rText;
-        sEscaped = sEscaped.replaceAll(u"&"_ustr, u"&amp;"_ustr);
-        sEscaped = sEscaped.replaceAll(u"<"_ustr, u"&lt;"_ustr);
-        sEscaped = sEscaped.replaceAll(u">"_ustr, u"&gt;"_ustr);
-        sEscaped = sEscaped.replaceAll(u"\""_ustr, u"&quot;"_ustr);
+        rBuilder.append(u"<Section N='Character'>");
+        const size_t nCharacterRows
+            = rTextStyle.maRuns.empty() ? 1 : rTextStyle.maRuns.size();
+        for (size_t nRun = 0; nRun < nCharacterRows; ++nRun)
+        {
+            const TextRun* pRun
+                = rTextStyle.maRuns.empty() ? nullptr : &rTextStyle.maRuns[nRun];
+            rBuilder.append(u"<Row IX='");
+            rBuilder.append(OUString::number(nRun));
+            rBuilder.append(u"'><Cell N='Font' V='");
+            rBuilder.append(escapeXml(pRun ? pRun->maFontName : u"Calibri"_ustr));
+            rBuilder.append(u"'/><Cell N='Color' V='");
+            rBuilder.append(pRun ? pRun->maColor : rTextStyle.maColor);
+            rBuilder.append(u"'/><Cell N='Style' V='");
+            rBuilder.append(OUString::number(pRun ? pRun->mnStyle : 0));
+            rBuilder.append(u"'/><Cell N='Size' V='");
+            rBuilder.append(fmtDouble(
+                pRun ? pRun->mfFontSizeInches : rTextStyle.mfFontSizeInches));
+            rBuilder.append(u"'/></Row>");
+        }
+        rBuilder.append(u"</Section>");
+        rBuilder.append(u"<Section N='Paragraph'>");
+        const size_t nParagraphRows
+            = rTextStyle.maParagraphs.empty() ? 1 : rTextStyle.maParagraphs.size();
+        for (size_t nParagraph = 0; nParagraph < nParagraphRows; ++nParagraph)
+        {
+            const sal_Int32 nHorizontalAlign
+                = rTextStyle.maParagraphs.empty()
+                      ? rTextStyle.mnHorizontalAlign
+                      : rTextStyle.maParagraphs[nParagraph].mnHorizontalAlign;
+            rBuilder.append(u"<Row IX='");
+            rBuilder.append(OUString::number(nParagraph));
+            rBuilder.append(u"'><Cell N='IndFirst' V='0'/>");
+            rBuilder.append(u"<Cell N='IndLeft' V='0'/>");
+            rBuilder.append(u"<Cell N='IndRight' V='0'/>");
+            rBuilder.append(u"<Cell N='SpLine' V='-1.2'/>");
+            rBuilder.append(u"<Cell N='SpBefore' V='0'/>");
+            rBuilder.append(u"<Cell N='SpAfter' V='0'/>");
+            rBuilder.append(u"<Cell N='HorzAlign' V='");
+            rBuilder.append(OUString::number(nHorizontalAlign));
+            rBuilder.append(u"'/><Cell N='Bullet' V='0'/>");
+            rBuilder.append(u"<Cell N='Flags' V='0'/></Row>");
+        }
+        rBuilder.append(u"</Section>");
 
         rBuilder.append(u"<Text>");
-        rBuilder.append(sEscaped);
+        if (rTextStyle.maRuns.empty())
+        {
+            rBuilder.append(escapeXml(rText));
+        }
+        else
+        {
+            for (size_t nRun = 0; nRun < rTextStyle.maRuns.size(); ++nRun)
+            {
+                const TextRun& rRun = rTextStyle.maRuns[nRun];
+                if (nRun != 0 && rRun.mbParagraphStart)
+                    rBuilder.append(u"\n");
+                rBuilder.append(u"<cp IX='");
+                rBuilder.append(OUString::number(nRun));
+                rBuilder.append(u"'/>");
+                if (rRun.mbParagraphStart)
+                {
+                    rBuilder.append(u"<pp IX='");
+                    rBuilder.append(OUString::number(rRun.mnParagraphIndex));
+                    rBuilder.append(u"'/>");
+                }
+                rBuilder.append(escapeXml(rRun.maText));
+            }
+        }
         rBuilder.append(u"</Text>");
     }
 

@@ -13,6 +13,7 @@
 #include <rtl/ustrbuf.hxx>
 
 #include <com/sun/star/awt/Point.hpp>
+#include <com/sun/star/text/XText.hpp>
 
 #include <utility>
 #include <vector>
@@ -37,6 +38,22 @@ public:
     virtual oox::drawingml::chart::ChartConverter* getChartConverter() override { return nullptr; }
 
 private:
+    struct TextRun
+    {
+        OUString maText;
+        OUString maFontName = u"Calibri"_ustr;
+        OUString maColor = u"#000000"_ustr;
+        double mfFontSizeInches = 12.0 / 72.0;
+        sal_Int32 mnStyle = 0;
+        bool mbParagraphStart = false;
+        sal_uInt32 mnParagraphIndex = 0;
+    };
+
+    struct ParagraphStyle
+    {
+        sal_Int32 mnHorizontalAlign = 0;
+    };
+
     struct TextStyle
     {
         double mfFontSizeInches;
@@ -47,6 +64,8 @@ private:
         sal_Int32 mnHorizontalAlign;
         sal_Int32 mnVerticalAlign;
         OUString maColor = u"#000000"_ustr;
+        std::vector<TextRun> maRuns;
+        std::vector<ParagraphStyle> maParagraphs;
     };
 
     // One VSDX Geometry section row, e.g. a RelMoveTo or RelLineTo. Cell
@@ -73,6 +92,8 @@ private:
     void WriteDocumentXml();
     void WritePagesXml();
     void WritePageXml(sal_uInt32 nPageNum);
+    void CollectTextRuns(const css::uno::Reference<css::text::XText>& xText,
+                         TextStyle& rTextStyle) const;
 
     // Shape tree
     void WriteShapeToBuilder(OUStringBuffer& rBuilder,
