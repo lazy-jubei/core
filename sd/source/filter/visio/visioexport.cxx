@@ -86,6 +86,34 @@ OUString fmtDouble(double fVal)
     return OUString::createFromAscii(buf);
 }
 
+// LineShape, PolyLineShape and PolyPolygonShape expose the PointSequenceSequence
+// property "Geometry" - explicitly the *untransformed* point set
+// (offapi/com/sun/star/drawing/PolyPolygonDescriptor.idl, mapped in
+// svx/source/unodraw/unoprov.cxx). Points are in 1/100 mm, local to the shape.
+css::uno::Sequence<css::uno::Sequence<css::awt::Point>>
+getUntransformedPoints(const css::uno::Reference<css::beans::XPropertySet>& xProperties)
+{
+    css::uno::Sequence<css::uno::Sequence<css::awt::Point>> aPoints;
+    if (!xProperties.is())
+        return aPoints;
+    try
+    {
+        xProperties->getPropertyValue(u"Geometry"_ustr) >>= aPoints;
+    }
+    catch (const css::uno::Exception&)
+    {
+        // Fall back to the reference points if the shape does not expose Geometry.
+        try
+        {
+            xProperties->getPropertyValue(u"PolyPolygon"_ustr) >>= aPoints;
+        }
+        catch (const css::uno::Exception&)
+        {
+        }
+    }
+    return aPoints;
+}
+
 } // anonymous namespace
 
 namespace oox::core {
@@ -604,10 +632,31 @@ void VisioExport::WriteShapeToBuilder(OUStringBuffer& rBuilder,
     {
     }
 
+    // Select the VSDX geometry rows for this shape type.
+    Geometry aGeometry;
+    if (sServiceName == u"com.sun.star.drawing.EllipseShape"_ustr)
+    {
+        aGeometry = MakeEllipseGeometry(fWidth, fHeight);
+    }
+    else if (sServiceName == u"com.sun.star.drawing.LineShape"_ustr
+             || sServiceName == u"com.sun.star.drawing.PolyLineShape"_ustr
+             || sServiceName == u"com.sun.star.drawing.PolyPolygonShape"_ustr)
+    {
+        aGeometry = MakePointsGeometry(
+            getUntransformedPoints(xProperties), fWidth, fHeight,
+            sServiceName == u"com.sun.star.drawing.PolyPolygonShape"_ustr);
+        if (aGeometry.empty())
+            aGeometry = MakeRectangleGeometry();
+    }
+    else
+    {
+        aGeometry = MakeRectangleGeometry();
+    }
+
     WriteRectangleToBuilder(rBuilder, sType, fPinX, fPinY, fWidth, fHeight,
                             fAngleRad, sFillColor, bNoFill, sLineColor,
                             fLineWidthInches, bLineVisible, sText,
-                            aTextStyle);
+                            aTextStyle, aGeometry);
 }
 
 bool VisioExport::WriteTableToBuilder(
@@ -709,7 +758,7 @@ bool VisioExport::WriteTableToBuilder(
                     rBuilder, u"Shape"_ustr, fPinX, fPinY, fWidth, fHeight, 0.0,
                     sFillColor, bNoFill, u"#ffffff"_ustr,
                     DEFAULT_LINE_WIDTH_INCHES, true, sText,
-                    aTextStyle);
+                    aTextStyle, MakeRectangleGeometry());
                 nXOffset += nColumnWidth;
             }
             nYOffset += nRowHeight;
@@ -727,7 +776,7 @@ void VisioExport::WriteRectangleToBuilder(
     double fPinY, double fWidth, double fHeight, double fAngleRad,
     const OUString& rFillColor, bool bNoFill, const OUString& rLineColor,
     double fLineWidthInches, bool bLineVisible, const OUString& rText,
-    const TextStyle& rTextStyle)
+    const TextStyle& rTextStyle, const Geometry& rGeometry)
 {
     rBuilder.append(u"<Shape ID='");
     rBuilder.append(OUString::number(mnNextShapeId++));
@@ -789,19 +838,31 @@ void VisioExport::WriteRectangleToBuilder(
         rBuilder.append(u"<Cell N='FillBkgnd' V='#ffffff' F='Inh'/>");
     }
 
-    // Geometry (default: rectangle for custom shapes, will need enhancement)
+    // Geometry
     rBuilder.append(u"<Section N='Geometry' IX='0'>");
     rBuilder.append(u"<Cell N='NoFill' V='0'/>");
     rBuilder.append(u"<Cell N='NoLine' V='0'/>");
     rBuilder.append(u"<Cell N='NoShow' V='0'/>");
     rBuilder.append(u"<Cell N='NoSnap' V='0'/>");
     rBuilder.append(u"<Cell N='NoQuickDrag' V='0'/>");
-    // Default rectangle geometry (enhance with actual path data)
-    rBuilder.append(u"<Row T='RelMoveTo' IX='1'><Cell N='X' V='0'/><Cell N='Y' V='0'/></Row>");
-    rBuilder.append(u"<Row T='RelLineTo' IX='2'><Cell N='X' V='1'/><Cell N='Y' V='0'/></Row>");
-    rBuilder.append(u"<Row T='RelLineTo' IX='3'><Cell N='X' V='1'/><Cell N='Y' V='1'/></Row>");
-    rBuilder.append(u"<Row T='RelLineTo' IX='4'><Cell N='X' V='0'/><Cell N='Y' V='1'/></Row>");
-    rBuilder.append(u"<Row T='RelLineTo' IX='5'><Cell N='X' V='0'/><Cell N='Y' V='0'/></Row>");
+    sal_uInt32 nRowIx = 1;
+    for (const auto& rRow : rGeometry)
+    {
+        rBuilder.append(u"<Row T='");
+        rBuilder.append(rRow.aRowType);
+        rBuilder.append(u"' IX='");
+        rBuilder.append(OUString::number(nRowIx++));
+        rBuilder.append(u"'>");
+        for (const auto& rCell : rRow.aCells)
+        {
+            rBuilder.append(u"<Cell N='");
+            rBuilder.append(rCell.aName);
+            rBuilder.append(u"' V='");
+            rBuilder.append(rCell.aValue);
+            rBuilder.append(u"'/>");
+        }
+        rBuilder.append(u"</Row>");
+    }
     rBuilder.append(u"</Section>");
 
     // Text
@@ -858,6 +919,84 @@ void VisioExport::WriteRectangleToBuilder(
     }
 
     rBuilder.append(u"</Shape>");
+}
+
+VisioExport::Geometry VisioExport::MakeRectangleGeometry() const
+{
+    // Rectangle path in relative (0..1) shape coordinates, closed.
+    return {
+        { u"RelMoveTo"_ustr, { { u"X"_ustr, u"0"_ustr }, { u"Y"_ustr, u"0"_ustr } } },
+        { u"RelLineTo"_ustr, { { u"X"_ustr, u"1"_ustr }, { u"Y"_ustr, u"0"_ustr } } },
+        { u"RelLineTo"_ustr, { { u"X"_ustr, u"1"_ustr }, { u"Y"_ustr, u"1"_ustr } } },
+        { u"RelLineTo"_ustr, { { u"X"_ustr, u"0"_ustr }, { u"Y"_ustr, u"1"_ustr } } },
+        { u"RelLineTo"_ustr, { { u"X"_ustr, u"0"_ustr }, { u"Y"_ustr, u"0"_ustr } } },
+    };
+}
+
+VisioExport::Geometry VisioExport::MakeEllipseGeometry(double fWidthInches,
+                                                       double fHeightInches) const
+{
+    // MS-VSDX 2.1.2.14: a single Ellipse row defines the whole ellipse. X/Y is
+    // the center, (A,B) and (C,D) are two further points of the ellipse, all in
+    // local shape units (inches, bottom-left origin). A Geometry section with
+    // an Ellipse row has no other rows.
+    return {
+        { u"Ellipse"_ustr,
+          { { u"X"_ustr, fmtDouble(fWidthInches / 2.0) },
+            { u"Y"_ustr, fmtDouble(fHeightInches / 2.0) },
+            { u"A"_ustr, fmtDouble(fWidthInches) },
+            { u"B"_ustr, fmtDouble(fHeightInches / 2.0) },
+            { u"C"_ustr, fmtDouble(fWidthInches / 2.0) },
+            { u"D"_ustr, fmtDouble(0.0) } } },
+    };
+}
+
+VisioExport::Geometry
+VisioExport::MakePointsGeometry(
+    const css::uno::Sequence<css::uno::Sequence<css::awt::Point>>& rPointSequences,
+    double fWidthInches, double fHeightInches, bool bCloseSubpaths) const
+{
+    // Convert the untransformed LO points (1/100 mm, top-left origin) to
+    // relative (0..1) VSDX shape coordinates (bottom-left origin): the local
+    // Y axis is flipped, the global page PinY conversion is separate.
+    Geometry aGeometry;
+    for (const auto& rPoints : rPointSequences)
+    {
+        const sal_Int32 nCount = rPoints.getLength();
+        if (nCount < 2)
+            continue;
+        for (sal_Int32 i = 0; i < nCount; ++i)
+        {
+            const css::awt::Point aPoint = rPoints[i];
+            const double fRelX
+                = fWidthInches > 0.0 ? (aPoint.X * LO_TO_INCHES) / fWidthInches : 0.5;
+            const double fRelY
+                = fHeightInches > 0.0 ? 1.0 - (aPoint.Y * LO_TO_INCHES) / fHeightInches : 0.5;
+            aGeometry.push_back(
+                { i == 0 ? u"RelMoveTo"_ustr : u"RelLineTo"_ustr,
+                  { { u"X"_ustr, fmtDouble(fRelX) }, { u"Y"_ustr, fmtDouble(fRelY) } } });
+        }
+        if (bCloseSubpaths)
+        {
+            const bool bAlreadyClosed
+                = rPoints[nCount - 1].X == rPoints[0].X
+                  && rPoints[nCount - 1].Y == rPoints[0].Y;
+            if (!bAlreadyClosed)
+            {
+                const css::awt::Point aFirst = rPoints[0];
+                const double fRelX
+                    = fWidthInches > 0.0 ? (aFirst.X * LO_TO_INCHES) / fWidthInches : 0.5;
+                const double fRelY
+                    = fHeightInches > 0.0
+                          ? 1.0 - (aFirst.Y * LO_TO_INCHES) / fHeightInches
+                          : 0.5;
+                aGeometry.push_back(
+                    { u"RelLineTo"_ustr,
+                      { { u"X"_ustr, fmtDouble(fRelX) }, { u"Y"_ustr, fmtDouble(fRelY) } } });
+            }
+        }
+    }
+    return aGeometry;
 }
 
 } // namespace oox::core

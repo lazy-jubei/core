@@ -12,6 +12,11 @@
 #include <oox/core/xmlfilterbase.hxx>
 #include <rtl/ustrbuf.hxx>
 
+#include <com/sun/star/awt/Point.hpp>
+
+#include <utility>
+#include <vector>
+
 namespace oox::core {
 
 class VisioExport final : public XmlFilterBase
@@ -43,6 +48,20 @@ private:
         sal_Int32 mnVerticalAlign;
     };
 
+    // One VSDX Geometry section row, e.g. a RelMoveTo or RelLineTo. Cell
+    // values are preformatted strings.
+    struct GeometryCell
+    {
+        OUString aName;
+        OUString aValue;
+    };
+    struct GeometryRow
+    {
+        OUString aRowType;
+        std::vector<GeometryCell> aCells;
+    };
+    using Geometry = std::vector<GeometryRow>;
+
     virtual OUString SAL_CALL getImplementationName() override;
     virtual oox::ole::VbaProject* implCreateVbaProject() const override
     {
@@ -67,7 +86,15 @@ private:
                                  const OUString& rFillColor, bool bNoFill,
                                  const OUString& rLineColor, double fLineWidthInches,
                                  bool bLineVisible, const OUString& rText,
-                                 const TextStyle& rTextStyle);
+                                 const TextStyle& rTextStyle,
+                                 const Geometry& rGeometry);
+
+    // Geometry builders
+    Geometry MakeRectangleGeometry() const;
+    Geometry MakeEllipseGeometry(double fWidthInches, double fHeightInches) const;
+    Geometry MakePointsGeometry(
+        const css::uno::Sequence<css::uno::Sequence<css::awt::Point>>& rPointSequences,
+        double fWidthInches, double fHeightInches, bool bCloseSubpaths) const;
 
     sal_uInt32 mnNextShapeId;
 };
