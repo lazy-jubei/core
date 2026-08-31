@@ -604,6 +604,7 @@ $(eval $(call filter_Configuration_add_filters,fcfg_langpack,fcfg_draw_filters.x
 	draw8_template \
 	WordPerfectGraphics \
 	VisioDocument \
+	VisioVSDX \
 	PublisherDocument \
 	CorelDrawDocument \
 	CorelPresentationExchange \
