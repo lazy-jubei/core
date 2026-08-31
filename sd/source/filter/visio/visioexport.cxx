@@ -521,6 +521,29 @@ void VisioExport::WriteShapeToBuilder(OUStringBuffer& rBuilder,
                                        const css::uno::Reference<css::drawing::XShape>& xShape,
                                        double fPageHeight)
 {
+    // Visio imports commonly represent one logical master as a hierarchy of
+    // Draw groups.  The visual content (including fills and text) lives on the
+    // children, while the group itself is only a container.  Export the leaf
+    // shapes in page coordinates instead of replacing every group with one
+    // empty rectangular placeholder.
+    const OUString sServiceName = xShape->getShapeType();
+    if (sServiceName == u"com.sun.star.drawing.GroupShape"_ustr)
+    {
+        css::uno::Reference<css::drawing::XShapes> xGroupShapes(
+            xShape, css::uno::UNO_QUERY);
+        if (xGroupShapes.is())
+        {
+            const sal_Int32 nChildCount = xGroupShapes->getCount();
+            for (sal_Int32 nChild = 0; nChild < nChildCount; ++nChild)
+            {
+                css::uno::Reference<css::drawing::XShape> xChild(
+                    xGroupShapes->getByIndex(nChild), css::uno::UNO_QUERY_THROW);
+                WriteShapeToBuilder(rBuilder, xChild, fPageHeight);
+            }
+            return;
+        }
+    }
+
     // Get basic properties
     const css::awt::Point aPos = xShape->getPosition();
     const css::awt::Size aSize = xShape->getSize();
@@ -551,8 +574,6 @@ void VisioExport::WriteShapeToBuilder(OUStringBuffer& rBuilder,
         = nRotationHundredths * std::numbers::pi / 18000.0;
 
     // Match the dispatch used by LibreOffice's existing shape exporters.
-    const OUString sServiceName = xShape->getShapeType();
-
     if (sServiceName == u"com.sun.star.drawing.TableShape"_ustr
         || sServiceName == u"com.sun.star.presentation.TableShape"_ustr)
     {
@@ -629,6 +650,15 @@ void VisioExport::WriteShapeToBuilder(OUStringBuffer& rBuilder,
             && fCharHeight > 0.0f)
         {
             aTextStyle.mfFontSizeInches = fCharHeight / 72.0;
+        }
+
+        sal_Int32 nCharColor = -1;
+        if (xProperties.is()
+            && (xProperties->getPropertyValue(u"CharColor"_ustr) >>= nCharColor)
+            && nCharColor >= 0)
+        {
+            aTextStyle.maColor = colorToHexSimple(
+                static_cast<sal_uInt32>(nCharColor));
         }
 
         sal_Int32 nMargin = 0;
@@ -776,6 +806,14 @@ bool VisioExport::WriteTableToBuilder(
                     {
                         aTextStyle.mfFontSizeInches = fCharHeight / 72.0;
                     }
+                    sal_Int32 nCharColor = -1;
+                    if ((xCellProperties->getPropertyValue(u"CharColor"_ustr)
+                         >>= nCharColor)
+                        && nCharColor >= 0)
+                    {
+                        aTextStyle.maColor = colorToHexSimple(
+                            static_cast<sal_uInt32>(nCharColor));
+                    }
                 }
 
                 const double fWidth = nColumnWidth * LO_TO_INCHES;
@@ -922,7 +960,9 @@ void VisioExport::WriteRectangleToBuilder(
 
         rBuilder.append(u"<Section N='Character'><Row IX='0'>");
         rBuilder.append(u"<Cell N='Font' V='Calibri'/>");
-        rBuilder.append(u"<Cell N='Color' V='#000000'/>");
+        rBuilder.append(u"<Cell N='Color' V='");
+        rBuilder.append(rTextStyle.maColor);
+        rBuilder.append(u"'/>");
         rBuilder.append(u"<Cell N='Style' V='0'/>");
         rBuilder.append(u"<Cell N='Size' V='");
         rBuilder.append(fmtDouble(rTextStyle.mfFontSizeInches));
