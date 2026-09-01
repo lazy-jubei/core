@@ -351,6 +351,119 @@ CPPUNIT_TEST_FIXTURE(SdVisioExportTest, testLineGeometry)
                 "V", u"0");
 }
 
+CPPUNIT_TEST_FIXTURE(SdVisioExportTest, testLineArrowheads)
+{
+    createSdDrawDoc();
+    css::uno::Reference<drawing::XDrawPage> xPage(getPage(0));
+
+    auto addLine = [&](const drawing::PolyPolygonBezierCoords& rMarker,
+                       bool bAtStart, sal_Int32 nMarkerWidth, sal_Int32 nY) {
+        css::uno::Reference<drawing::XShape> xShape(
+            createShape(mxComponent, xPage, "com.sun.star.drawing.LineShape"));
+        setPosSize(xShape, 1000, nY, 5000, 500);
+        css::uno::Reference<beans::XPropertySet> xProperties(
+            xShape, css::uno::UNO_QUERY_THROW);
+        // 35 hundredths of a millimetre is approximately a one-point line.
+        xProperties->setPropertyValue(u"LineWidth"_ustr, css::uno::Any(sal_Int32(35)));
+        xProperties->setPropertyValue(bAtStart ? u"LineStart"_ustr : u"LineEnd"_ustr,
+                                      css::uno::Any(rMarker));
+        xProperties->setPropertyValue(
+            bAtStart ? u"LineStartWidth"_ustr : u"LineEndWidth"_ustr,
+            css::uno::Any(nMarkerWidth));
+    };
+
+    drawing::PolyPolygonBezierCoords aArrow;
+    aArrow.Coordinates = { css::uno::Sequence<awt::Point>(
+        { awt::Point(1500, 0), awt::Point(3000, 1789), awt::Point(3000, 2000),
+          awt::Point(2886, 2000), awt::Point(1600, 457), awt::Point(1600, 3000),
+          awt::Point(1400, 3000), awt::Point(1400, 457), awt::Point(114, 2000),
+          awt::Point(0, 2000), awt::Point(0, 1789), awt::Point(1500, 0) }) };
+    aArrow.Flags = { css::uno::Sequence<drawing::PolygonFlags>(
+        { drawing::PolygonFlags_NORMAL, drawing::PolygonFlags_NORMAL,
+          drawing::PolygonFlags_NORMAL, drawing::PolygonFlags_NORMAL,
+          drawing::PolygonFlags_NORMAL, drawing::PolygonFlags_NORMAL,
+          drawing::PolygonFlags_NORMAL, drawing::PolygonFlags_NORMAL,
+          drawing::PolygonFlags_NORMAL, drawing::PolygonFlags_NORMAL,
+          drawing::PolygonFlags_NORMAL, drawing::PolygonFlags_NORMAL }) };
+
+    drawing::PolyPolygonBezierCoords aLongTriangle;
+    aLongTriangle.Coordinates = { css::uno::Sequence<awt::Point>(
+        { awt::Point(10, 0), awt::Point(0, 30), awt::Point(20, 30),
+          awt::Point(10, 0) }) };
+    aLongTriangle.Flags = { css::uno::Sequence<drawing::PolygonFlags>(
+        { drawing::PolygonFlags_NORMAL, drawing::PolygonFlags_NORMAL,
+          drawing::PolygonFlags_NORMAL, drawing::PolygonFlags_NORMAL }) };
+
+    drawing::PolyPolygonBezierCoords aShortTriangle;
+    aShortTriangle.Coordinates = { css::uno::Sequence<awt::Point>(
+        { awt::Point(10, 0), awt::Point(0, 10), awt::Point(20, 10),
+          awt::Point(10, 0) }) };
+    aShortTriangle.Flags = { css::uno::Sequence<drawing::PolygonFlags>(
+        { drawing::PolygonFlags_NORMAL, drawing::PolygonFlags_NORMAL,
+          drawing::PolygonFlags_NORMAL, drawing::PolygonFlags_NORMAL }) };
+
+    drawing::PolyPolygonBezierCoords aCurved;
+    aCurved.Coordinates = { css::uno::Sequence<awt::Point>(
+        { awt::Point(10, 0), awt::Point(0, 20), awt::Point(7, 17),
+          awt::Point(13, 17), awt::Point(20, 20), awt::Point(10, 0) }) };
+    aCurved.Flags = { css::uno::Sequence<drawing::PolygonFlags>(
+        { drawing::PolygonFlags_NORMAL, drawing::PolygonFlags_NORMAL,
+          drawing::PolygonFlags_CONTROL, drawing::PolygonFlags_CONTROL,
+          drawing::PolygonFlags_NORMAL, drawing::PolygonFlags_NORMAL }) };
+
+    drawing::PolyPolygonBezierCoords aUnknown;
+    aUnknown.Coordinates = { css::uno::Sequence<awt::Point>(
+        { awt::Point(0, 0), awt::Point(20, 0), awt::Point(20, 20),
+          awt::Point(0, 20), awt::Point(0, 0) }) };
+    aUnknown.Flags = { css::uno::Sequence<drawing::PolygonFlags>(
+        { drawing::PolygonFlags_NORMAL, drawing::PolygonFlags_NORMAL,
+          drawing::PolygonFlags_NORMAL, drawing::PolygonFlags_NORMAL,
+          drawing::PolygonFlags_NORMAL }) };
+
+    // Inactive marker, then the four controller marker silhouettes, followed
+    // by an unknown active marker which must use the safe triangle fallback.
+    addLine(aShortTriangle, true, 0, 1000);
+    addLine(aArrow, true, 344, 2000);
+    addLine(aLongTriangle, false, 344, 3000);
+    addLine(aShortTriangle, true, 172, 4000);
+    addLine(aCurved, true, 686, 5000);
+    addLine(aUnknown, true, 344, 6000);
+
+    saveAsVisio();
+    xmlDocUniquePtr pXml = parsePage1();
+
+    auto assertArrowCell = [&](sal_Int32 nShape, const OString& rCell,
+                               const OUString& rValue) {
+        const OString sShape = "//*[local-name()='Shape'][" + OString::number(nShape) + "]";
+        assertXPath(pXml,
+                    sShape + "/*[local-name()='Cell' and @N='" + rCell + "']",
+                    "V", rValue);
+    };
+
+    // A nonempty polygon with zero marker width is inactive on both ends.
+    assertArrowCell(1, "BeginArrow", u"0"_ustr);
+    assertArrowCell(1, "BeginArrowSize", u"2"_ustr);
+    assertArrowCell(1, "EndArrow", u"0"_ustr);
+    assertArrowCell(1, "EndArrowSize", u"2"_ustr);
+
+    // LineStart maps to BeginArrow; LineEnd maps to EndArrow.
+    assertArrowCell(2, "BeginArrow", u"1"_ustr);
+    assertArrowCell(2, "BeginArrowSize", u"2"_ustr);
+    assertArrowCell(2, "EndArrow", u"0"_ustr);
+    assertArrowCell(3, "BeginArrow", u"0"_ustr);
+    assertArrowCell(3, "EndArrow", u"13"_ustr);
+    assertArrowCell(3, "EndArrowSize", u"2"_ustr);
+
+    // Short triangle, curved marker, and unknown-marker fallback. Their widths
+    // also cover the small and extra-large size buckets around medium above.
+    assertArrowCell(4, "BeginArrow", u"2"_ustr);
+    assertArrowCell(4, "BeginArrowSize", u"0"_ustr);
+    assertArrowCell(5, "BeginArrow", u"5"_ustr);
+    assertArrowCell(5, "BeginArrowSize", u"4"_ustr);
+    assertArrowCell(6, "BeginArrow", u"2"_ustr);
+    assertArrowCell(6, "BeginArrowSize", u"2"_ustr);
+}
+
 CPPUNIT_TEST_FIXTURE(SdVisioExportTest, testPolygonGeometry)
 {
     createSdDrawDoc();
