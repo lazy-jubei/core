@@ -1509,6 +1509,11 @@ void VisioExport::WriteRectangleToBuilder(
                     rBuilder.append(OUString::number(rRun.mnParagraphIndex));
                     rBuilder.append(u"'/>");
                 }
+                // VSDX re-import drops one leading space of a paragraph, so a
+                // paragraph-opening run whose text starts with a space needs
+                // one extra space to keep the model text round-trip stable.
+                if (rRun.mbParagraphStart && rRun.maText.startsWith(u' '))
+                    rBuilder.append(u' ');
                 rBuilder.append(escapeXml(rRun.maText));
             }
             // VSDX needs the empty final paragraph terminated by a newline,
