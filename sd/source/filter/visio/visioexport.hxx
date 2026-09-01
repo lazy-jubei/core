@@ -107,6 +107,7 @@ private:
                                  double fPinX, double fPinY, double fWidth,
                                  double fHeight, double fAngleRad,
                                  const OUString& rFillColor, bool bNoFill,
+                                 double fFillTransparency,
                                  const OUString& rLineColor, double fLineWidthInches,
                                  bool bLineVisible, const OUString& rText,
                                  const TextStyle& rTextStyle,
