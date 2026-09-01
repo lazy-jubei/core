@@ -142,6 +142,9 @@ jobs:
           # LibreOffice exports UCRTVERSION itself; keeping VS's UCRTVersion too
           # gives native MSBuild duplicate case-insensitive environment keys.
           unset MSYSTEM INCLUDE UCRTVersion
+          # Keep LibreOffice's native compiler paths in Windows form when an
+          # MSYS2 process launches the native gcc/g++ wrapper executables.
+          export MSYS2_ENV_CONV_EXCL='REAL_CC;REAL_CXX;REAL_BUILD_CC;REAL_BUILD_CXX'
           make MSYSTEM= fetch 2>&1 | tee fetch.log
 
       - name: Build LibreOfficeDev
@@ -149,6 +152,7 @@ jobs:
         run: |
           set -euxo pipefail
           unset MSYSTEM INCLUDE UCRTVersion
+          export MSYS2_ENV_CONV_EXCL='REAL_CC;REAL_CXX;REAL_BUILD_CC;REAL_BUILD_CXX'
           make MSYSTEM= -j3 2>&1 | tee build.log
 
       - name: Run VSDX export tests
@@ -156,6 +160,7 @@ jobs:
         run: |
           set -euxo pipefail
           unset MSYSTEM INCLUDE UCRTVersion
+          export MSYS2_ENV_CONV_EXCL='REAL_CC;REAL_CXX;REAL_BUILD_CC;REAL_BUILD_CXX'
           make MSYSTEM= -j3 CppunitTest_sd_visio_export_tests 2>&1 | tee visio-tests.log
 
       - name: Verify the portable program
