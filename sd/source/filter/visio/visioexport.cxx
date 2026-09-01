@@ -918,8 +918,11 @@ void VisioExport::WriteShapeToBuilder(OUStringBuffer& rBuilder,
     catch (const css::uno::Exception&)
     {
     }
-    const double fAngleRad
-        = nRotationHundredths * std::numbers::pi / 18000.0;
+    double fAngleRad = nRotationHundredths * std::numbers::pi / 18000.0;
+    // LineShape endpoint geometry already encodes direction; RotateAngle is
+    // derived from the endpoints and redundant here.
+    if (sServiceName == u"com.sun.star.drawing.LineShape"_ustr)
+        fAngleRad = 0.0;
 
     // Match the dispatch used by LibreOffice's existing shape exporters.
     if (sServiceName == u"com.sun.star.drawing.TableShape"_ustr

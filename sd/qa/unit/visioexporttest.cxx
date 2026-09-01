@@ -364,11 +364,23 @@ CPPUNIT_TEST_FIXTURE(SdVisioExportTest, testLineGeometry)
     createSdDrawDoc();
     css::uno::Reference<drawing::XShape> xShape(
         createShape(mxComponent, getPage(0), "com.sun.star.drawing.LineShape"));
-    // Default line runs across the bounding box diagonal
-    setPosSize(xShape, 1000, 1000, 2540, 1270);
+    // A tall, narrow LineShape is almost vertical. Its endpoint direction is
+    // also exposed as a derived non-zero RotateAngle by the Draw model.
+    setPosSize(xShape, 1000, 1000, 36, 14050);
+    css::uno::Reference<beans::XPropertySet> xProperties(
+        xShape, css::uno::UNO_QUERY_THROW);
+    sal_Int32 nRotateAngle = 0;
+    xProperties->getPropertyValue(u"RotateAngle"_ustr) >>= nRotateAngle;
+    CPPUNIT_ASSERT(nRotateAngle != 0);
 
     saveAsVisio();
     xmlDocUniquePtr pXml = parsePage1();
+
+    // The endpoint geometry already contains the direction, so exporting the
+    // derived model angle would rotate the line a second time.
+    assertXPath(pXml,
+                "//*[local-name()='Shape'][1]/*[local-name()='Cell' and @N='Angle']",
+                "V", u"0");
 
     // Open path: one RelMoveTo and one RelLineTo, no closing row.
     assertXPath(pXml, sGeomXPath + "/*[local-name()='Row']", 2);
