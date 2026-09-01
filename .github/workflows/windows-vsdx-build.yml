@@ -1,0 +1,197 @@
+name: Windows VSDX portable build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-vsdx-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows:
+    runs-on: windows-2022
+    timeout-minutes: 355
+
+    steps:
+      - name: Preserve LF line endings
+        shell: pwsh
+        run: git config --global core.autocrlf input
+
+      - name: Check out the VSDX branch
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+
+      - name: Set up Visual Studio 2022
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64
+
+      - name: Set up MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MSYS
+          location: 'D:\msys64'
+          update: true
+          path-type: inherit
+          cache: true
+          install: >-
+            base-devel
+            autoconf
+            automake
+            bison
+            flex
+            gawk
+            gettext
+            make
+            patch
+            perl
+            perl-Archive-Zip
+            pkgconf
+            unzip
+            which
+            zip
+            mingw-w64-x86_64-pkgconf
+
+      - name: Inspect Windows build prerequisites
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Get-PSDrive -PSProvider FileSystem
+
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path -LiteralPath $vswhere)) {
+            throw "vswhere.exe was not found at $vswhere"
+          }
+          & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+
+          $compiler = Get-Command cl.exe -ErrorAction SilentlyContinue
+          if (-not $compiler) {
+            throw 'cl.exe was not found after setting up Visual Studio 2022'
+          }
+          $compiler | Format-List Source, Version
+
+          $cmake = Get-Command cmake.exe -ErrorAction SilentlyContinue
+          if ($cmake) {
+            $cmake | Format-List Source, Version
+          } else {
+            Write-Warning 'cmake.exe is not currently on PATH; configure may locate the Visual Studio copy.'
+          }
+
+          $assemblyLinker = Get-Command al.exe -ErrorAction SilentlyContinue
+          if (-not $assemblyLinker) {
+            $sdkRoot = "${env:ProgramFiles(x86)}\Microsoft SDKs\Windows"
+            if (Test-Path -LiteralPath $sdkRoot) {
+              $assemblyLinker = Get-ChildItem -LiteralPath $sdkRoot -Filter al.exe -File -Recurse |
+                Sort-Object FullName -Descending |
+                Select-Object -First 1
+            }
+          }
+          if (-not $assemblyLinker) {
+            throw 'al.exe was not found in PATH or the installed Microsoft SDKs'
+          }
+          $assemblyLinkerPath = if ($assemblyLinker -is [System.IO.FileInfo]) {
+            $assemblyLinker.FullName
+          } else {
+            $assemblyLinker.Source
+          }
+          Write-Output "al.exe: $assemblyLinkerPath"
+          Split-Path -Parent $assemblyLinkerPath | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+          cmd /c 'fsutil 8dot3name query C:'
+
+      - name: Configure LibreOfficeDev
+        shell: msys2 {0}
+        run: |
+          set -euxo pipefail
+          chmod +x .github/scripts/msys2-patch-wrapper.sh
+          external_tar="$(cygpath -u "$RUNNER_TEMP")/lo-externaltar"
+          mkdir -p "$external_tar"
+          export CC=cl.exe
+          export CXX=cl.exe
+          export PKG_CONFIG=/mingw64/bin/pkgconf.exe
+          export PATCH="$PWD/.github/scripts/msys2-patch-wrapper.sh"
+          ./autogen.sh \
+            --build=x86_64-pc-cygwin \
+            --host=x86_64-pc-cygwin \
+            --with-visual-studio=2022 \
+            --disable-debug \
+            --without-java \
+            --without-doxygen \
+            --with-lang=en-US \
+            --disable-online-update \
+            --with-external-tar="$external_tar" \
+            2>&1 | tee autogen.log
+
+      - name: Fetch external sources
+        shell: msys2 {0}
+        run: |
+          set -euxo pipefail
+          make PATH="$PATH" fetch 2>&1 | tee fetch.log
+
+      - name: Build LibreOfficeDev
+        shell: msys2 {0}
+        run: |
+          set -euxo pipefail
+          make PATH="$PATH" -j3 2>&1 | tee build.log
+
+      - name: Run VSDX export tests
+        shell: msys2 {0}
+        run: |
+          set -euxo pipefail
+          make PATH="$PATH" -j3 CppunitTest_sd_visio_export_tests 2>&1 | tee visio-tests.log
+
+      - name: Verify the portable program
+        shell: pwsh
+        run: |
+          $soffice = Join-Path $env:GITHUB_WORKSPACE 'instdir\program\soffice.com'
+          if (-not (Test-Path -LiteralPath $soffice)) {
+            throw "Portable executable was not produced: $soffice"
+          }
+          & $soffice --headless --version
+          if ($LASTEXITCODE -ne 0) {
+            throw "Packaged soffice.com failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Package the portable build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $artifactDirectory = Join-Path $env:GITHUB_WORKSPACE 'artifacts'
+          $bundle = Join-Path $env:RUNNER_TEMP 'LibreOfficeDev-VSDX-Windows-x64'
+          $archive = Join-Path $artifactDirectory 'LibreOfficeDev-VSDX-Windows-x64.zip'
+          New-Item -ItemType Directory -Path $artifactDirectory, $bundle -Force | Out-Null
+          Copy-Item -Path (Join-Path $env:GITHUB_WORKSPACE 'instdir\*') -Destination $bundle -Recurse -Force
+          Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'README.md') -Destination (Join-Path $bundle 'README-VSDX-FORK.md')
+          Compress-Archive -LiteralPath $bundle -DestinationPath $archive -CompressionLevel Optimal
+          Get-FileHash -Algorithm SHA256 -LiteralPath $archive
+
+      - name: Upload the Windows portable build
+        uses: actions/upload-artifact@v7
+        with:
+          name: LibreOfficeDev-VSDX-Windows-x64
+          path: artifacts/LibreOfficeDev-VSDX-Windows-x64.zip
+          retention-days: 14
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-vsdx-build-logs
+          path: |
+            autogen.log
+            fetch.log
+            build.log
+            visio-tests.log
+            config.log
+            workdir/CppunitTest/sd_visio_export_tests.test.log
+          if-no-files-found: ignore
+          retention-days: 14
+          compression-level: 6
