@@ -201,6 +201,49 @@ CPPUNIT_TEST_FIXTURE(SdVisioExportTest, testGroupChildrenKeepFillAndText)
                 "V", u"#ff0000");
 }
 
+CPPUNIT_TEST_FIXTURE(SdVisioExportTest, testFillTransparence)
+{
+    createSdDrawDoc();
+    css::uno::Reference<drawing::XDrawPage> xPage(getPage(0));
+
+    // An earlier label, overlapped by a later solid-fill panel. Without the
+    // exported fill transparence cells the panel is opaque and hides the label.
+    css::uno::Reference<drawing::XShape> xTextShape(
+        createShape(mxComponent, xPage, "com.sun.star.drawing.TextShape"));
+    setPosSize(xTextShape, 1000, 1000, 6000, 1000);
+    css::uno::Reference<text::XText> xText(xTextShape, css::uno::UNO_QUERY_THROW);
+    xText->setString(u"Label"_ustr);
+
+    css::uno::Reference<drawing::XShape> xPanel(
+        createShape(mxComponent, xPage, "com.sun.star.drawing.RectangleShape"));
+    setPosSize(xPanel, 1500, 1200, 5000, 1500);
+    css::uno::Reference<beans::XPropertySet> xPanelProperties(
+        xPanel, css::uno::UNO_QUERY_THROW);
+    xPanelProperties->setPropertyValue(u"FillColor"_ustr,
+                                       css::uno::Any(sal_Int32(0x8db1e2)));
+    xPanelProperties->setPropertyValue(u"FillTransparence"_ustr,
+                                       css::uno::Any(sal_Int16(88)));
+
+    saveAsVisio();
+    xmlDocUniquePtr pXml = parsePage1();
+
+    // Both shapes are exported and the panel keeps its color plus its 88%
+    // fill transparence; LO's percent becomes the 0.88 VSDX fraction.
+    assertXPath(pXml, "//*[local-name()='Shapes']/*[local-name()='Shape']", 2);
+    const OString sPanel = "//*[local-name()='Shape']"
+                           "[*[local-name()='Cell' and @N='FillForegnd' and @V='#8db1e2']]";
+    assertXPath(pXml,
+                sPanel + "/*[local-name()='Cell' and @N='FillForegndTrans']",
+                "V", u"0.88");
+    assertXPath(pXml,
+                sPanel + "/*[local-name()='Cell' and @N='FillBkgndTrans']",
+                "V", u"0.88");
+    assertXPathContent(
+        pXml,
+        "//*[local-name()='Shape'][*[local-name()='Text']]/*[local-name()='Text']",
+        u"Label");
+}
+
 CPPUNIT_TEST_FIXTURE(SdVisioExportTest, testTextRunFormatting)
 {
     createSdDrawDoc();

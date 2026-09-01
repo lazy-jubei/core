@@ -101,6 +101,30 @@ OUString fmtDouble(double fVal)
     return OUString::createFromAscii(buf);
 }
 
+// The UNO FillTransparence property is a percent (0 = opaque, 100 = fully
+// transparent), while the VSDX FillForegndTrans/FillBkgndTrans cells store
+// a 0..1 fraction. Shapes without the property stay opaque.
+double fillTransparencyToFraction(
+    const css::uno::Reference<css::beans::XPropertySet>& xProperties)
+{
+    if (!xProperties.is())
+        return 0.0;
+    sal_Int16 nTransparence = 0;
+    try
+    {
+        xProperties->getPropertyValue(u"FillTransparence"_ustr) >>= nTransparence;
+    }
+    catch (const css::uno::Exception&)
+    {
+        return 0.0;
+    }
+    if (nTransparence <= 0)
+        return 0.0;
+    if (nTransparence >= 100)
+        return 1.0;
+    return nTransparence / 100.0;
+}
+
 OUString escapeXml(const OUString& rText)
 {
     OUString sEscaped = rText;
@@ -912,6 +936,7 @@ void VisioExport::WriteShapeToBuilder(OUStringBuffer& rBuilder,
     // Get fill/line properties
     OUString sFillColor = u"#ffffff"_ustr;
     bool bNoFill = false;
+    double fFillTransparency = 0.0;
     try
     {
         css::drawing::FillStyle eFillStyle = css::drawing::FillStyle_SOLID;
@@ -926,6 +951,7 @@ void VisioExport::WriteShapeToBuilder(OUStringBuffer& rBuilder,
             sal_Int32 nColor = 0xffffff;
             xProperties->getPropertyValue(u"FillColor"_ustr) >>= nColor;
             sFillColor = colorToHexSimple(static_cast<sal_uInt32>(nColor));
+            fFillTransparency = fillTransparencyToFraction(xProperties);
         }
     }
     catch (const css::uno::Exception&)
@@ -1118,8 +1144,8 @@ void VisioExport::WriteShapeToBuilder(OUStringBuffer& rBuilder,
     }
 
     WriteRectangleToBuilder(rBuilder, sType, fPinX, fPinY, fWidth, fHeight,
-                            fAngleRad, sFillColor, bNoFill, sLineColor,
-                            fLineWidthInches, bLineVisible, sText,
+                            fAngleRad, sFillColor, bNoFill, fFillTransparency,
+                            sLineColor, fLineWidthInches, bLineVisible, sText,
                             aTextStyle, aGeometry, nBeginType, nBeginSize,
                             nEndType, nEndSize);
 }
@@ -1175,6 +1201,7 @@ bool VisioExport::WriteTableToBuilder(
 
                 OUString sFillColor = u"#ffffff"_ustr;
                 bool bNoFill = false;
+                double fCellFillTransparency = 0.0;
                 if (xCellProperties.is())
                 {
                     css::drawing::FillStyle eFillStyle = css::drawing::FillStyle_SOLID;
@@ -1186,6 +1213,8 @@ bool VisioExport::WriteTableToBuilder(
                         xCellProperties->getPropertyValue(u"FillColor"_ustr) >>= nFillColor;
                         sFillColor = colorToHexSimple(
                             static_cast<sal_uInt32>(nFillColor));
+                        fCellFillTransparency =
+                            fillTransparencyToFraction(xCellProperties);
                     }
                 }
 
@@ -1231,7 +1260,7 @@ bool VisioExport::WriteTableToBuilder(
                 // table grid in applications that do not understand LO tables.
                 WriteRectangleToBuilder(
                     rBuilder, u"Shape"_ustr, fPinX, fPinY, fWidth, fHeight, 0.0,
-                    sFillColor, bNoFill, u"#ffffff"_ustr,
+                    sFillColor, bNoFill, fCellFillTransparency, u"#ffffff"_ustr,
                     DEFAULT_LINE_WIDTH_INCHES, true, sText,
                     aTextStyle, MakeRectangleGeometry(), 0, 2, 0, 2);
                 nXOffset += nColumnWidth;
@@ -1249,10 +1278,11 @@ bool VisioExport::WriteTableToBuilder(
 void VisioExport::WriteRectangleToBuilder(
     OUStringBuffer& rBuilder, const OUString& rType, double fPinX,
     double fPinY, double fWidth, double fHeight, double fAngleRad,
-    const OUString& rFillColor, bool bNoFill, const OUString& rLineColor,
-    double fLineWidthInches, bool bLineVisible, const OUString& rText,
-    const TextStyle& rTextStyle, const Geometry& rGeometry, sal_Int32 nBeginType,
-    sal_Int32 nBeginSize, sal_Int32 nEndType, sal_Int32 nEndSize)
+    const OUString& rFillColor, bool bNoFill, double fFillTransparency,
+    const OUString& rLineColor, double fLineWidthInches, bool bLineVisible,
+    const OUString& rText, const TextStyle& rTextStyle, const Geometry& rGeometry,
+    sal_Int32 nBeginType, sal_Int32 nBeginSize, sal_Int32 nEndType,
+    sal_Int32 nEndSize)
 {
     rBuilder.append(u"<Shape ID='");
     rBuilder.append(OUString::number(mnNextShapeId++));
@@ -1324,6 +1354,17 @@ void VisioExport::WriteRectangleToBuilder(
         rBuilder.append(rFillColor);
         rBuilder.append(u"' F='Inh'/>");
         rBuilder.append(u"<Cell N='FillBkgnd' V='#ffffff' F='Inh'/>");
+        // Zero is the default style value, so the cells are only written
+        // when the fill is actually translucent.
+        if (fFillTransparency > 0.0)
+        {
+            rBuilder.append(u"<Cell N='FillForegndTrans' V='");
+            rBuilder.append(fmtDouble(fFillTransparency));
+            rBuilder.append(u"'/>");
+            rBuilder.append(u"<Cell N='FillBkgndTrans' V='");
+            rBuilder.append(fmtDouble(fFillTransparency));
+            rBuilder.append(u"'/>");
+        }
     }
 
     // Geometry
