@@ -338,7 +338,9 @@ endef
 # we explicitly have to replace cygwin with mingw32 for the host, but the build must stay cygwin, or cmd.exe processes will be spawned
 gb_WIN_GPG_WINDRES_target := $(if $(filter INTEL,$(CPUNAME)),pe-i386,pe-x86-64)
 gb_WIN_GPG_platform_switches := --build=$(BUILD_PLATFORM) --host=$(subst cygwin,mingw32,$(HOST_PLATFORM))
-gb_WIN_GPG_cross_setup_exports = export REAL_BUILD_CC="$(filter-out -%,$(CC_FOR_BUILD))" REAL_BUILD_CC_FLAGS="$(filter -%,$(CC_FOR_BUILD))" \
+# gcc-wrapper is a native executable, so its compiler path must use Windows
+# syntax even when configure selected an MSYS/Cygwin path for CC_FOR_BUILD.
+gb_WIN_GPG_cross_setup_exports = export REAL_BUILD_CC="$(shell cygpath -w $(filter-out -%,$(CC_FOR_BUILD)))" REAL_BUILD_CC_FLAGS="$(filter -%,$(CC_FOR_BUILD))" \
     && export CC_FOR_BUILD="$(call gb_Executable_get_target_for_build,gcc-wrapper) --wrapper-env-prefix=REAL_BUILD_ $(SOLARINC) -L$(subst ;, -L,$(ILIB_FOR_BUILD))" \
     && export RC='windres -O COFF --target=$(gb_WIN_GPG_WINDRES_target) --preprocessor=$(call gb_Executable_get_target_for_build,cpp) --preprocessor-arg=-+ -DRC_INVOKED -DWINAPI_FAMILY=0 $(SOLARINC)'
 
