@@ -110,13 +110,16 @@ jobs:
         shell: msys2 {0}
         run: |
           set -euxo pipefail
-          chmod +x .github/scripts/msys2-patch-wrapper.sh
+          chmod +x \
+            .github/scripts/msys2-patch-wrapper.sh \
+            .github/scripts/msys2-tar-wrapper.sh
           external_tar="$(cygpath -u "$RUNNER_TEMP")/lo-externaltar"
           mkdir -p "$external_tar"
           export CC=cl.exe
           export CXX=cl.exe
           export PKG_CONFIG=/mingw64/bin/pkgconf.exe
           export PATCH="$PWD/.github/scripts/msys2-patch-wrapper.sh"
+          export GNUTAR="$PWD/.github/scripts/msys2-tar-wrapper.sh"
           ./autogen.sh \
             --build=x86_64-pc-cygwin \
             --host=x86_64-pc-cygwin \
