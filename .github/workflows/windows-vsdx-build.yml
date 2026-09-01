@@ -50,6 +50,7 @@ jobs:
             gettext
             gperf
             make
+            nasm
             patch
             perl
             perl-Archive-Zip
