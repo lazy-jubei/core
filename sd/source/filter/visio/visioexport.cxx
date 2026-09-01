@@ -849,6 +849,17 @@ void VisioExport::CollectTextRuns(
                     {
                         aRun.mnStyle |= 4;
                     }
+
+                    sal_Int16 nCharEscapement = 0;
+                    if (xRunProperties->getPropertyValue(u"CharEscapement"_ustr)
+                        >>= nCharEscapement)
+                    {
+                        // VSDX Pos: 0 normal, 1 superscript, 2 subscript.
+                        if (nCharEscapement > 0)
+                            aRun.mnCharPosition = 1;
+                        else if (nCharEscapement < 0)
+                            aRun.mnCharPosition = 2;
+                    }
                 }
 
                 rTextStyle.maRuns.push_back(std::move(aRun));
@@ -1439,6 +1450,8 @@ void VisioExport::WriteRectangleToBuilder(
             rBuilder.append(pRun ? pRun->maColor : rTextStyle.maColor);
             rBuilder.append(u"'/><Cell N='Style' V='");
             rBuilder.append(OUString::number(pRun ? pRun->mnStyle : 0));
+            rBuilder.append(u"'/><Cell N='Pos' V='");
+            rBuilder.append(OUString::number(pRun ? pRun->mnCharPosition : 0));
             rBuilder.append(u"'/><Cell N='Size' V='");
             rBuilder.append(fmtDouble(
                 pRun ? pRun->mfFontSizeInches : rTextStyle.mfFontSizeInches));
