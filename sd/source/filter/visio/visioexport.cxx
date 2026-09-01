@@ -1498,6 +1498,12 @@ void VisioExport::WriteRectangleToBuilder(
                 }
                 rBuilder.append(escapeXml(rRun.maText));
             }
+            // VSDX needs the empty final paragraph terminated by a newline,
+            // otherwise it is lost on re-import.
+            const TextRun& rLastRun = rTextStyle.maRuns.back();
+            if (rTextStyle.maRuns.size() > 1 && rLastRun.mbParagraphStart
+                && rLastRun.maText.isEmpty())
+                rBuilder.append(u"\n");
         }
         rBuilder.append(u"</Text>");
     }
