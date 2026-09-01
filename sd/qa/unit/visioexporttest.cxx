@@ -381,6 +381,54 @@ CPPUNIT_TEST_FIXTURE(SdVisioExportTest, testTextRunFormatting)
                 "IX", u"1");
 }
 
+CPPUNIT_TEST_FIXTURE(SdVisioExportTest, testTrailingEmptyParagraph)
+{
+    createSdDrawDoc();
+    css::uno::Reference<drawing::XShape> xTextShape(
+        createShape(mxComponent, getPage(0), "com.sun.star.drawing.TextShape"));
+    setPosSize(xTextShape, 1000, 1000, 6000, 2000);
+    css::uno::Reference<text::XText> xText(xTextShape, css::uno::UNO_QUERY_THROW);
+    // A visible paragraph plus a trailing empty paragraph.
+    xText->setString(u"Line\n"_ustr);
+
+    saveAsVisio();
+    xmlDocUniquePtr pXml = parsePage1();
+    const OString sTextShape = "//*[local-name()='Shape'][1]";
+
+    assertXPath(pXml,
+                sTextShape
+                    + "/*[local-name()='Section' and @N='Paragraph']/*[local-name()='Row']",
+                2);
+    assertXPath(pXml, sTextShape + "/*[local-name()='Text']/*[local-name()='pp']", 2);
+    // The empty final paragraph must be terminated, otherwise it is lost on
+    // re-import.
+    assertXPathContent(pXml, sTextShape + "/*[local-name()='Text']", u"Line\n\n");
+
+    // Round trip: the imported shape keeps the trailing empty paragraph.
+    dispose();
+    const css::uno::Sequence<beans::PropertyValue> aArgs{
+        comphelper::makePropertyValue("FilterName", OUString("Visio VSDX")),
+    };
+    loadFromURL(maTempFile.GetURL(), aArgs);
+    css::uno::Reference<drawing::XDrawPagesSupplier> xDrawPagesSupplier(
+        mxComponent, css::uno::UNO_QUERY_THROW);
+    css::uno::Reference<drawing::XShapes> xShapes(getPage(0), css::uno::UNO_QUERY_THROW);
+    CPPUNIT_ASSERT_EQUAL(sal_Int32(1), xShapes->getCount());
+    css::uno::Reference<text::XText> xImportedText(xShapes->getByIndex(0),
+                                                   css::uno::UNO_QUERY_THROW);
+    css::uno::Reference<container::XEnumerationAccess> xParagraphAccess(
+        xImportedText, css::uno::UNO_QUERY_THROW);
+    css::uno::Reference<container::XEnumeration> xParagraphs(
+        xParagraphAccess->createEnumeration(), css::uno::UNO_SET_THROW);
+    sal_Int32 nParagraphs = 0;
+    while (xParagraphs->hasMoreElements())
+    {
+        xParagraphs->nextElement();
+        ++nParagraphs;
+    }
+    CPPUNIT_ASSERT_EQUAL(sal_Int32(2), nParagraphs);
+}
+
 CPPUNIT_TEST_FIXTURE(SdVisioExportTest, testLineGeometry)
 {
     createSdDrawDoc();
