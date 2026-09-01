@@ -11,6 +11,30 @@ moved by the common goal of bringing to the market the best software
 for personal productivity. LibreOffice is open source, and free to
 download, use and distribute.
 
+## Fork-specific: experimental VSDX export
+
+This repository is a fork of upstream LibreOffice. The
+[vsdx-export](https://github.com/lazy-jubei/core/tree/vsdx-export)
+branch of the lazy-jubei fork adds experimental Microsoft Visio VSDX
+export to LibreOffice Draw. This is a fork feature and is not part of
+upstream LibreOffice.
+
+Save with the "Microsoft Visio 2013-365 Drawing (\*.vsdx)" filter in
+Save As / Save a Copy, or convert from the command line:
+
+    program\soffice.com --headless --convert-to "vsdx:Visio VSDX" --outdir output input.odg
+
+What the export currently preserves: editable shapes, grouped-shape
+contents flattened to editable leaves, fills and transparency,
+formatted and colored text, paragraph spacing, superscript and
+subscript, routed paths, Bezier geometry, arrowheads, and line
+orientation.
+
+Known limitations: the filter is experimental, so keep the original
+files; shape groups are flattened to individual shapes; and connector
+glue/topology is not retained, even though the routed paths are
+preserved visually.
+
 A quick overview of the LibreOffice code structure.
 
 ## Overview
