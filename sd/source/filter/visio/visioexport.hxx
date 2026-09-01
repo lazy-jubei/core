@@ -110,7 +110,9 @@ private:
                                  const OUString& rLineColor, double fLineWidthInches,
                                  bool bLineVisible, const OUString& rText,
                                  const TextStyle& rTextStyle,
-                                 const Geometry& rGeometry);
+                                 const Geometry& rGeometry, sal_Int32 nBeginType,
+                                 sal_Int32 nBeginSize, sal_Int32 nEndType,
+                                 sal_Int32 nEndSize);
 
     // Geometry builders
     Geometry MakeRectangleGeometry() const;
