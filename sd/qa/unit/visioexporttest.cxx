@@ -276,6 +276,10 @@ CPPUNIT_TEST_FIXTURE(SdVisioExportTest, testTextRunFormatting)
     xBlueProperties->setPropertyValue(u"CharColor"_ustr,
                                       css::uno::Any(sal_Int32(0x0000ff)));
     xBlueProperties->setPropertyValue(u"CharHeight"_ustr, css::uno::Any(16.0f));
+    xBlueProperties->setPropertyValue(u"CharEscapement"_ustr,
+                                      css::uno::Any(sal_Int16(-14000)));
+    xBlueProperties->setPropertyValue(u"CharEscapementHeight"_ustr,
+                                      css::uno::Any(sal_Int8(58)));
 
     css::uno::Reference<container::XEnumerationAccess> xParagraphAccess(
         xText, css::uno::UNO_QUERY_THROW);
@@ -330,6 +334,16 @@ CPPUNIT_TEST_FIXTURE(SdVisioExportTest, testTextRunFormatting)
                     + "/*[local-name()='Section' and @N='Character']/*[local-name()='Row'][1]"
                       "/*[local-name()='Cell' and @N='Style']",
                 "V", u"1");
+    assertXPath(pXml,
+                sTextShape
+                    + "/*[local-name()='Section' and @N='Character']/*[local-name()='Row'][1]"
+                      "/*[local-name()='Cell' and @N='Pos']",
+                "V", u"0");
+    assertXPath(pXml,
+                sTextShape
+                    + "/*[local-name()='Section' and @N='Character']/*[local-name()='Row'][2]"
+                      "/*[local-name()='Cell' and @N='Pos']",
+                "V", u"2");
     assertXPath(pXml,
                 sTextShape
                     + "/*[local-name()='Section' and @N='Character']/*[local-name()='Row'][2]"
