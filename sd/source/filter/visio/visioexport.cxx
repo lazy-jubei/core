@@ -40,6 +40,8 @@
 #include <com/sun/star/container/XEnumeration.hpp>
 #include <com/sun/star/container/XEnumerationAccess.hpp>
 #include <com/sun/star/table/XTable.hpp>
+#include <com/sun/star/style/LineSpacing.hpp>
+#include <com/sun/star/style/LineSpacingMode.hpp>
 #include <com/sun/star/style/ParagraphAdjust.hpp>
 #include <com/sun/star/text/XTextRange.hpp>
 
@@ -768,6 +770,12 @@ void VisioExport::CollectTextRuns(
                     else
                         aParagraphStyle.mnHorizontalAlign = 0;
                 }
+                css::style::LineSpacing aLineSpacing;
+                if ((xParagraphProperties->getPropertyValue(u"ParaLineSpacing"_ustr)
+                     >>= aLineSpacing)
+                    && aLineSpacing.Mode == css::style::LineSpacingMode::PROP)
+                    aParagraphStyle.mfLineSpacing
+                        = -static_cast<double>(aLineSpacing.Height) / 100.0;
             }
             const sal_uInt32 nParagraphIndex = rTextStyle.maParagraphs.size();
             rTextStyle.maParagraphs.push_back(aParagraphStyle);
@@ -1446,12 +1454,18 @@ void VisioExport::WriteRectangleToBuilder(
                 = rTextStyle.maParagraphs.empty()
                       ? rTextStyle.mnHorizontalAlign
                       : rTextStyle.maParagraphs[nParagraph].mnHorizontalAlign;
+            const double fLineSpacing
+                = rTextStyle.maParagraphs.empty()
+                      ? -1.2
+                      : rTextStyle.maParagraphs[nParagraph].mfLineSpacing;
             rBuilder.append(u"<Row IX='");
             rBuilder.append(OUString::number(nParagraph));
             rBuilder.append(u"'><Cell N='IndFirst' V='0'/>");
             rBuilder.append(u"<Cell N='IndLeft' V='0'/>");
             rBuilder.append(u"<Cell N='IndRight' V='0'/>");
-            rBuilder.append(u"<Cell N='SpLine' V='-1.2'/>");
+            rBuilder.append(u"<Cell N='SpLine' V='");
+            rBuilder.append(fmtDouble(fLineSpacing));
+            rBuilder.append(u"'/>");
             rBuilder.append(u"<Cell N='SpBefore' V='0'/>");
             rBuilder.append(u"<Cell N='SpAfter' V='0'/>");
             rBuilder.append(u"<Cell N='HorzAlign' V='");
