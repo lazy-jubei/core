@@ -133,19 +133,23 @@ jobs:
         shell: msys2 {0}
         run: |
           set -euxo pipefail
-          make PATH="$PATH" fetch 2>&1 | tee fetch.log
+          # LibreOffice treats a non-empty MSYSTEM as its WSL helper mode.
+          unset MSYSTEM
+          make fetch 2>&1 | tee fetch.log
 
       - name: Build LibreOfficeDev
         shell: msys2 {0}
         run: |
           set -euxo pipefail
-          make PATH="$PATH" -j3 2>&1 | tee build.log
+          unset MSYSTEM
+          make -j3 2>&1 | tee build.log
 
       - name: Run VSDX export tests
         shell: msys2 {0}
         run: |
           set -euxo pipefail
-          make PATH="$PATH" -j3 CppunitTest_sd_visio_export_tests 2>&1 | tee visio-tests.log
+          unset MSYSTEM
+          make -j3 CppunitTest_sd_visio_export_tests 2>&1 | tee visio-tests.log
 
       - name: Verify the portable program
         shell: pwsh
