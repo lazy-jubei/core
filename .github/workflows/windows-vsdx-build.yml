@@ -48,6 +48,7 @@ jobs:
             flex
             gawk
             gettext
+            gperf
             make
             patch
             perl
