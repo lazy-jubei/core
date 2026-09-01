@@ -53,6 +53,7 @@ private:
     struct ParagraphStyle
     {
         sal_Int32 mnHorizontalAlign = 0;
+        double mfLineSpacing = -1.2;
     };
 
     struct TextStyle
