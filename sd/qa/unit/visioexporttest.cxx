@@ -25,6 +25,8 @@
 #include <com/sun/star/frame/XStorable.hpp>
 #include <com/sun/star/lang/XComponent.hpp>
 #include <com/sun/star/lang/XMultiServiceFactory.hpp>
+#include <com/sun/star/style/LineSpacing.hpp>
+#include <com/sun/star/style/LineSpacingMode.hpp>
 #include <com/sun/star/style/ParagraphAdjust.hpp>
 #include <com/sun/star/text/XText.hpp>
 #include <com/sun/star/text/XTextCursor.hpp>
@@ -284,11 +286,21 @@ CPPUNIT_TEST_FIXTURE(SdVisioExportTest, testTextRunFormatting)
     xRedParagraph->setPropertyValue(
         u"ParaAdjust"_ustr,
         css::uno::Any(sal_Int16(style::ParagraphAdjust_CENTER)));
+    css::style::LineSpacing aRedLineSpacing;
+    aRedLineSpacing.Mode = style::LineSpacingMode::PROP;
+    aRedLineSpacing.Height = 90;
+    xRedParagraph->setPropertyValue(u"ParaLineSpacing"_ustr,
+                                    css::uno::Any(aRedLineSpacing));
     css::uno::Reference<beans::XPropertySet> xBlueParagraph(
         xParagraphs->nextElement(), css::uno::UNO_QUERY_THROW);
     xBlueParagraph->setPropertyValue(
         u"ParaAdjust"_ustr,
         css::uno::Any(sal_Int16(style::ParagraphAdjust_RIGHT)));
+    css::style::LineSpacing aBlueLineSpacing;
+    aBlueLineSpacing.Mode = style::LineSpacingMode::PROP;
+    aBlueLineSpacing.Height = 100;
+    xBlueParagraph->setPropertyValue(u"ParaLineSpacing"_ustr,
+                                     css::uno::Any(aBlueLineSpacing));
 
     saveAsVisio();
     xmlDocUniquePtr pXml = parsePage1();
@@ -350,6 +362,16 @@ CPPUNIT_TEST_FIXTURE(SdVisioExportTest, testTextRunFormatting)
                     + "/*[local-name()='Section' and @N='Paragraph']/*[local-name()='Row'][2]"
                       "/*[local-name()='Cell' and @N='HorzAlign']",
                 "V", u"2");
+    assertXPath(pXml,
+                sTextShape
+                    + "/*[local-name()='Section' and @N='Paragraph']/*[local-name()='Row'][1]"
+                      "/*[local-name()='Cell' and @N='SpLine']",
+                "V", u"-0.9");
+    assertXPath(pXml,
+                sTextShape
+                    + "/*[local-name()='Section' and @N='Paragraph']/*[local-name()='Row'][2]"
+                      "/*[local-name()='Cell' and @N='SpLine']",
+                "V", u"-1");
     assertXPath(pXml, sTextShape + "/*[local-name()='Text']/*[local-name()='pp']", 2);
     assertXPath(pXml,
                 sTextShape + "/*[local-name()='Text']/*[local-name()='pp'][1]",
