@@ -157,6 +157,154 @@ css::drawing::PolyPolygonBezierCoords getBezierPoints(
     return aBezier;
 }
 
+bool hasNonemptyPolygon(const css::drawing::PolyPolygonBezierCoords& rBezier)
+{
+    for (sal_Int32 i = 0; i < rBezier.Coordinates.getLength(); ++i)
+        if (rBezier.Coordinates[i].getLength() > 0)
+            return true;
+    return false;
+}
+
+// Map the imported controller marker names to the VSDX
+// BeginArrow/EndArrow values. The polygon based recognition is
+// authoritative, so this is only consulted for markers whose polygon is
+// not recognized, and unknown names return 0.
+sal_Int32 arrowTypeFromName(const OUString& rName)
+{
+    if (rName == u"Marker_0"_ustr)
+        return 1; // Arrow
+    if (rName == u"Marker_1"_ustr)
+        return 13; // Long filled triangle
+    if (rName == u"Marker_2"_ustr)
+        return 2; // Triangle
+    if (rName == u"Marker_3"_ustr)
+        return 5; // Concave curved marker
+    return 0;
+}
+
+// The first coordinate sequence of a marker polygon identifies the
+// silhouette. A repeated closing point is not an extra vertex, and Bezier
+// control points are read from the matching flag sequence.
+sal_Int32 arrowTypeFromFirstPolygon(
+    const css::drawing::PolyPolygonBezierCoords& rBezier)
+{
+    if (rBezier.Coordinates.getLength() == 0)
+        return 0;
+    const auto& rPoints = rBezier.Coordinates[0];
+    sal_Int32 nCount = rPoints.getLength();
+    if (nCount >= 2 && rPoints[nCount - 1].X == rPoints[0].X
+        && rPoints[nCount - 1].Y == rPoints[0].Y)
+        --nCount;
+    if (nCount < 3)
+        return 0;
+
+    bool bHasControl = false;
+    if (rBezier.Flags.getLength() > 0)
+    {
+        const auto& rFlags = rBezier.Flags[0];
+        for (sal_Int32 i = 0; i < rFlags.getLength() && i < nCount; ++i)
+            if (rFlags[i] == css::drawing::PolygonFlags_CONTROL)
+                bHasControl = true;
+    }
+
+    // Count the unique vertices; repeats cannot identify a silhouette.
+    sal_Int32 nUnique = 0;
+    for (sal_Int32 i = 0; i < nCount; ++i)
+    {
+        bool bKnown = false;
+        for (sal_Int32 j = 0; j < i; ++j)
+            if (rPoints[i].X == rPoints[j].X && rPoints[i].Y == rPoints[j].Y)
+            {
+                bKnown = true;
+                break;
+            }
+        if (!bKnown)
+            ++nUnique;
+    }
+
+    // A curved 5-ish silhouette with control points is the concave curved
+    // marker.
+    if (bHasControl && nUnique >= 4 && nUnique <= 6)
+        return 5; // Concave curved marker
+    if (nUnique >= 10)
+        return 1; // Arrow
+    if (nUnique == 3)
+    {
+        double fMinX = rPoints[0].X;
+        double fMaxX = rPoints[0].X;
+        double fMinY = rPoints[0].Y;
+        double fMaxY = rPoints[0].Y;
+        for (sal_Int32 i = 1; i < nCount; ++i)
+        {
+            const double x = rPoints[i].X;
+            const double y = rPoints[i].Y;
+            if (x < fMinX)
+                fMinX = x;
+            if (x > fMaxX)
+                fMaxX = x;
+            if (y < fMinY)
+                fMinY = y;
+            if (y > fMaxY)
+                fMaxY = y;
+        }
+        const double fW = fMaxX - fMinX;
+        const double fH = fMaxY - fMinY;
+        if (fW <= 0.0 || fH <= 0.0)
+            return 0;
+        // A triangle as tall as it is wide is a long filled triangle.
+        return fH >= fW ? 13 : 2;
+    }
+    return 0;
+}
+
+// The marker polygon is authoritative: a recognizable silhouette wins even
+// when the marker name is only a generic label (as UNO supplies for
+// user-assigned markers). The imported controller names act as a fallback
+// for unrecognized polygons, and any other active marker exports as a plain
+// triangle.
+sal_Int32 getArrowType(const OUString& rName,
+                       const css::drawing::PolyPolygonBezierCoords& rPolygon)
+{
+    const sal_Int32 nPolygonType = arrowTypeFromFirstPolygon(rPolygon);
+    if (nPolygonType != 0)
+        return nPolygonType;
+    const sal_Int32 nNameType = arrowTypeFromName(rName);
+    if (nNameType != 0)
+        return nNameType;
+    // Any other active marker exports as a plain triangle.
+    return 2;
+}
+
+// Map an arrow width (1/100 mm; negative values are a percentage of the line
+// width) to the VSDX BeginArrowSize/EndArrowSize index by comparing it with
+// the "medium" width for the current line weight.
+sal_Int32 getArrowSizeBucket(sal_Int32 nWidthHundredthsMm, double fLineWidthInches)
+{
+    double fWidthMm = 0.0;
+    if (nWidthHundredthsMm > 0)
+        fWidthMm = nWidthHundredthsMm / 100.0;
+    else
+        fWidthMm = std::abs(static_cast<double>(nWidthHundredthsMm))
+                   * fLineWidthInches * 25.4 / 100.0;
+    const double fMediumMm
+        = 25.4 * (0.1 / (fLineWidthInches * fLineWidthInches + 1.0)
+                  + 2.54 * fLineWidthInches);
+    static constexpr double FACTORS[] = { 0.5, 0.75, 1.0, 1.5, 2.0 };
+    const double fRatio = fWidthMm / fMediumMm;
+    sal_Int32 nBest = 2;
+    double fBestDistance = 1e300;
+    for (sal_Int32 i = 0; i < 5; ++i)
+    {
+        const double fDistance = std::abs(fRatio - FACTORS[i]);
+        if (fDistance < fBestDistance)
+        {
+            fBestDistance = fDistance;
+            nBest = i;
+        }
+    }
+    return nBest;
+}
+
 } // anonymous namespace
 
 namespace oox::core {
@@ -811,6 +959,53 @@ void VisioExport::WriteShapeToBuilder(OUStringBuffer& rBuilder,
     {
     }
 
+    // Arrow markers on the line ends. LineStart/LineEnd hold the marker
+    // polygon, LineStartName/LineEndName the marker name that carries the
+    // exact Visio marker across the import/export round trip, and
+    // LineStartWidth/LineEndWidth the width in 1/100 mm (negative values are
+    // a percentage of the line width).
+    sal_Int32 nBeginType = 0;
+    sal_Int32 nBeginSize = 2;
+    sal_Int32 nEndType = 0;
+    sal_Int32 nEndSize = 2;
+    if (bLineVisible)
+    {
+        css::drawing::PolyPolygonBezierCoords aLineStart;
+        css::drawing::PolyPolygonBezierCoords aLineEnd;
+        OUString sLineStartName;
+        OUString sLineEndName;
+        sal_Int32 nLineStartWidth = 0;
+        sal_Int32 nLineEndWidth = 0;
+        try
+        {
+            if (xProperties.is())
+            {
+                xProperties->getPropertyValue(u"LineStart"_ustr) >>= aLineStart;
+                xProperties->getPropertyValue(u"LineEnd"_ustr) >>= aLineEnd;
+                xProperties->getPropertyValue(u"LineStartName"_ustr) >>= sLineStartName;
+                xProperties->getPropertyValue(u"LineEndName"_ustr) >>= sLineEndName;
+                xProperties->getPropertyValue(u"LineStartWidth"_ustr) >>= nLineStartWidth;
+                xProperties->getPropertyValue(u"LineEndWidth"_ustr) >>= nLineEndWidth;
+            }
+        }
+        catch (const css::uno::Exception&)
+        {
+        }
+
+        // An end is active when the line is visible, the marker polygon is
+        // nonempty and the marker width is nonzero.
+        if (hasNonemptyPolygon(aLineStart) && nLineStartWidth != 0)
+        {
+            nBeginType = getArrowType(sLineStartName, aLineStart);
+            nBeginSize = getArrowSizeBucket(nLineStartWidth, fLineWidthInches);
+        }
+        if (hasNonemptyPolygon(aLineEnd) && nLineEndWidth != 0)
+        {
+            nEndType = getArrowType(sLineEndName, aLineEnd);
+            nEndSize = getArrowSizeBucket(nLineEndWidth, fLineWidthInches);
+        }
+    }
+
     // Get text
     OUString sText;
     css::uno::Reference<css::text::XText> xText(xShape, css::uno::UNO_QUERY);
@@ -925,7 +1120,8 @@ void VisioExport::WriteShapeToBuilder(OUStringBuffer& rBuilder,
     WriteRectangleToBuilder(rBuilder, sType, fPinX, fPinY, fWidth, fHeight,
                             fAngleRad, sFillColor, bNoFill, sLineColor,
                             fLineWidthInches, bLineVisible, sText,
-                            aTextStyle, aGeometry);
+                            aTextStyle, aGeometry, nBeginType, nBeginSize,
+                            nEndType, nEndSize);
 }
 
 bool VisioExport::WriteTableToBuilder(
@@ -1037,7 +1233,7 @@ bool VisioExport::WriteTableToBuilder(
                     rBuilder, u"Shape"_ustr, fPinX, fPinY, fWidth, fHeight, 0.0,
                     sFillColor, bNoFill, u"#ffffff"_ustr,
                     DEFAULT_LINE_WIDTH_INCHES, true, sText,
-                    aTextStyle, MakeRectangleGeometry());
+                    aTextStyle, MakeRectangleGeometry(), 0, 2, 0, 2);
                 nXOffset += nColumnWidth;
             }
             nYOffset += nRowHeight;
@@ -1055,7 +1251,8 @@ void VisioExport::WriteRectangleToBuilder(
     double fPinY, double fWidth, double fHeight, double fAngleRad,
     const OUString& rFillColor, bool bNoFill, const OUString& rLineColor,
     double fLineWidthInches, bool bLineVisible, const OUString& rText,
-    const TextStyle& rTextStyle, const Geometry& rGeometry)
+    const TextStyle& rTextStyle, const Geometry& rGeometry, sal_Int32 nBeginType,
+    sal_Int32 nBeginSize, sal_Int32 nEndType, sal_Int32 nEndSize)
 {
     rBuilder.append(u"<Shape ID='");
     rBuilder.append(OUString::number(mnNextShapeId++));
@@ -1098,6 +1295,18 @@ void VisioExport::WriteRectangleToBuilder(
         rBuilder.append(u"<Cell N='LineColor' V='");
         rBuilder.append(rLineColor);
         rBuilder.append(u"' F='Inh'/>");
+        rBuilder.append(u"<Cell N='BeginArrow' V='");
+        rBuilder.append(OUString::number(nBeginType));
+        rBuilder.append(u"'/>");
+        rBuilder.append(u"<Cell N='BeginArrowSize' V='");
+        rBuilder.append(OUString::number(nBeginSize));
+        rBuilder.append(u"'/>");
+        rBuilder.append(u"<Cell N='EndArrow' V='");
+        rBuilder.append(OUString::number(nEndType));
+        rBuilder.append(u"'/>");
+        rBuilder.append(u"<Cell N='EndArrowSize' V='");
+        rBuilder.append(OUString::number(nEndSize));
+        rBuilder.append(u"'/>");
     }
     else
     {
