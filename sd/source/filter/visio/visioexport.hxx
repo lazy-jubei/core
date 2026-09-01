@@ -46,6 +46,7 @@ private:
         OUString maColor = u"#000000"_ustr;
         double mfFontSizeInches = 12.0 / 72.0;
         sal_Int32 mnStyle = 0;
+        sal_Int32 mnCharPosition = 0;
         bool mbParagraphStart = false;
         sal_uInt32 mnParagraphIndex = 0;
     };
