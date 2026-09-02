@@ -11,13 +11,12 @@ moved by the common goal of bringing to the market the best software
 for personal productivity. LibreOffice is open source, and free to
 download, use and distribute.
 
-## Fork-specific: experimental VSDX export
+## Fork-specific: VSDX export
 
 This repository is a fork of upstream LibreOffice. The
 [vsdx-export](https://github.com/lazy-jubei/core/tree/vsdx-export)
-branch of the lazy-jubei fork adds experimental Microsoft Visio VSDX
-export to LibreOffice Draw. This is a fork feature and is not part of
-upstream LibreOffice.
+branch adds experimental Microsoft Visio VSDX
+export to LibreOffice Draw. 
 
 Save with the "Microsoft Visio 2013-365 Drawing (\*.vsdx)" filter in
 Save As / Save a Copy, or convert from the command line:
