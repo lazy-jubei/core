@@ -16305,8 +16305,14 @@ if test "$build_os" = "cygwin" -o "$build_os" = wsl -o -n "$WSL_ONLY_AS_HELPER";
         ATL_INCLUDE="$WINDOWS_SDK_HOME/include/atl"
     fi
     ATL_LIB="$ATL_LIB/$WIN_HOST_ARCH"
-    ATL_LIB=`win_short_path_for_make "$ATL_LIB"`
-    ATL_INCLUDE=`win_short_path_for_make "$ATL_INCLUDE"`
+    if test -n "$MSYSTEM"; then
+        dnl Native compiler wrappers launched by MSYS2 need Windows-style ATL paths.
+        ATL_LIB=`cygpath -sm "$ATL_LIB"`
+        ATL_INCLUDE=`cygpath -sm "$ATL_INCLUDE"`
+    else
+        ATL_LIB=`win_short_path_for_make "$ATL_LIB"`
+        ATL_INCLUDE=`win_short_path_for_make "$ATL_INCLUDE"`
+    fi
 fi
 
 if test "$build_os" = "cygwin"; then
