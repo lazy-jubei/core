@@ -201,10 +201,10 @@ jobs:
           # make invokes gbuild with PARALLELISM, so -j1 alone does not serialize
           # the inner make. Build only the affected packages with both controls.
           make MSYSTEM= PARALLELISM=1 -j1 \
-            Package_tplpresnt \
-            Package_tplwizard \
-            Package_templates \
-            Package_tplwizdesktop \
+            Package_extras_tplpresnt \
+            Package_extras_tplwizard \
+            Package_extras_templates \
+            Package_extras_tplwizdesktop \
             2>&1 | tee templates.log
 
       - name: Build LibreOfficeDev
