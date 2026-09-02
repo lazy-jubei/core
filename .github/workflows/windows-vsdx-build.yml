@@ -147,6 +147,14 @@ jobs:
           export MSYS2_ENV_CONV_EXCL='REAL_CC;REAL_CXX;REAL_BUILD_CC;REAL_BUILD_CXX'
           make MSYSTEM= fetch 2>&1 | tee fetch.log
 
+      - name: Build Firebird prerequisite
+        shell: msys2 {0}
+        run: |
+          set -euxo pipefail
+          unset MSYSTEM INCLUDE UCRTVersion
+          export MSYS2_ENV_CONV_EXCL='REAL_CC;REAL_CXX;REAL_BUILD_CC;REAL_BUILD_CXX'
+          make MSYSTEM= -j3 ExternalProject_firebird 2>&1 | tee firebird.log
+
       - name: Build LibreOfficeDev
         shell: msys2 {0}
         run: |
@@ -205,6 +213,7 @@ jobs:
           path: |
             autogen.log
             fetch.log
+            firebird.log
             build.log
             visio-tests.log
             config.log
