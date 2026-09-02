@@ -697,3 +697,11 @@ diff -ur src/misc/makeHeader.cpp src/misc/makeHeader.cpp
  
  	App app;
  	try
+
+--- examples/empbuild/empbuild.e.orig
++++ examples/empbuild/empbuild.e
+@@ -96,3 +96,3 @@
+ printf ("Turning forced writes off\n");
+-sprintf (cmd, "gfix -write async %s", Db_name);
++sprintf (cmd, "\"%s/bin/gfix.exe\" -write async %s", getenv("FIREBIRD"), Db_name);
+ if (system (cmd))
