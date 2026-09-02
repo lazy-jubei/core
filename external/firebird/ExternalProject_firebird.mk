@@ -23,8 +23,6 @@ $(eval $(call gb_ExternalProject_register_targets,firebird,\
 ))
 
 firebird_BUILDDIR = $(EXTERNAL_WORKDIR)/gen/$(if $(ENABLE_DEBUG),Debug,Release)/firebird
-# empbuild invokes gfix through system() on Windows, so the runtime tools must
-# remain discoverable by child processes rather than only by prefixed recipes.
 firebird_RUNTIME_LIBDIR = $(firebird_BUILDDIR)/$(if $(filter WNT,$(OS)),bin,lib)
 firebird_VERSION := 3.0.13
 
@@ -78,7 +76,6 @@ $(call gb_ExternalProject_get_state_target,firebird,build):
 		" \
 		&& export LIBREOFFICE_ICU_LIB="$(gb_UnpackedTarball_workdir)/icu/source/lib" \
 		&& export MSVC_USE_INDIVIDUAL_PDBS=TRUE \
-		$(if $(filter WNT,$(OS)),&& export PATH="$(call gb_Helper_cyg_path,$(firebird_RUNTIME_LIBDIR)):$$PATH") \
 		&& MAKE=$(MAKE) $(gb_RUN_CONFIGURE) ./configure \
 			--without-editline \
 			--with-wire-compress=no \
