@@ -207,16 +207,19 @@ jobs:
           # separately so path-conversion failures do not surface late in gbuild.
           make MSYSTEM= -j3 ExternalProject_nss 2>&1 | tee nss.log
 
-      - name: Build bundled template packages serially
+      - name: Build bundled ZIP packages serially
         shell: msys2 {0}
         run: |
           set -euxo pipefail
           unset MSYSTEM INCLUDE UCRTVersion
           export MSYS2_ENV_CONV_EXCL='REAL_CC;REAL_CXX;REAL_BUILD_CC;REAL_BUILD_CXX'
-          # Template archives use multi-target ZIP recipes. LibreOffice's outer
-          # make invokes gbuild with PARALLELISM, so -j1 alone does not serialize
-          # the inner make. Build only the affected packages with both controls.
+          # Template and autocorrect archives use ZIP recipes that are unreliable
+          # when several native zip processes start together under MSYS2.
+          # LibreOffice's outer make invokes gbuild with PARALLELISM, so -j1 alone
+          # does not serialize the inner make. Build the affected packages with
+          # both controls before the parallel build.
           make MSYSTEM= PARALLELISM=1 -j1 \
+            Package_extras_autocorr \
             Package_extras_tplpresnt \
             Package_extras_tplwizard \
             Package_extras_templates \
