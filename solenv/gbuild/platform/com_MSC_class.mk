@@ -665,10 +665,10 @@ gb_AUTOCONF_WRAPPERS = \
 # Meson runs with the native Windows Python from instdir.  Unlike MSYS tools,
 # that Python cannot launch a compiler whose path uses /c/... syntax.  Keep
 # compiler flags intact while converting the executable itself to a native
-# path for Meson-based external projects. Meson locates link.exe by name, so
-# also put the MSVC tool directory on the PATH inherited by native Python.
+# path for Meson-based external projects. Also provide the MSVC librarian by
+# absolute path so Meson never resolves the MSYS coreutils tool of that name.
 gb_MESON_WINDOWS_NATIVE_ENV = \
-	PATH="$(shell cygpath -u $(dir $(lastword $(filter-out -%,$(CC))))):$(shell cygpath -up '$(PATH)')" \
+	AR="$(shell cygpath -m $(dir $(lastword $(filter-out -%,$(CC))))lib.exe)" \
 	CC="$(shell cygpath -m $(filter-out -%,$(CC))) $(filter -%,$(CC))" \
 	CXX="$(shell cygpath -m $(filter-out -%,$(CXX))) $(filter -%,$(CXX))"
 

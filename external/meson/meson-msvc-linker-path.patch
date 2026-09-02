@@ -1,0 +1,20 @@
+--- mesonbuild/compilers/detect.py
++++ mesonbuild/compilers/detect.py
+@@ -512,13 +512,16 @@
+             if match:
+                 target = match.group(1)
+             else:
+                 m = f'Failed to detect MSVC compiler target architecture: \'cl /?\' output is\n{cl_signature}'
+                 raise EnvironmentException(m)
+             cls = c.VisualStudioCCompiler if lang == 'c' else cpp.VisualStudioCPPCompiler
+-            linker = guess_win_linker(env, ['link'], cls, version, for_machine)
++            # An absolute cl.exe path is already known here. Resolve link.exe
++            # beside it so native Python does not depend on an MSYS-style PATH.
++            linker_exe = os.path.join(os.path.dirname(compiler[0]), 'link.exe')
++            linker = guess_win_linker(env, [linker_exe], cls, version, for_machine)
+             # As of this writing, CCache does not support MSVC but sccache does.
+             if 'sccache' not in ccache:
+                 ccache = []
+             return cls(
+                 ccache, compiler, version, for_machine, is_cross, info, target,
+                 full_version=cl_signature, linker=linker)
