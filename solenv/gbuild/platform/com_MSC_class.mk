@@ -662,6 +662,14 @@ gb_AUTOCONF_WRAPPERS = \
 	CXX="$(call gb_Executable_get_target_for_build,g++-wrapper)" \
     LD="$(shell cygpath -w $(COMPATH)/bin/link.exe) -nologo"
 
+# Meson runs with the native Windows Python from instdir.  Unlike MSYS tools,
+# that Python cannot launch a compiler whose path uses /c/... syntax.  Keep
+# compiler flags intact while converting the executable itself to a native
+# path for Meson-based external projects.
+gb_MESON_WINDOWS_NATIVE_ENV = \
+	CC="$(shell cygpath -m $(filter-out -%,$(CC))) $(filter -%,$(CC))" \
+	CXX="$(shell cygpath -m $(filter-out -%,$(CXX))) $(filter -%,$(CXX))"
+
 gb_ExternalProject_INCLUDE := \
 	$(subst -I,,$(subst $(WHITESPACE),;,$(SOLARINC)))
 
