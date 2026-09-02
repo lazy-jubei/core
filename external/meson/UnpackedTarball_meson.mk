@@ -11,6 +11,12 @@ $(eval $(call gb_UnpackedTarball_UnpackedTarball,meson))
 
 $(eval $(call gb_UnpackedTarball_set_tarball,meson,$(MESON_TARBALL)))
 
+$(eval $(call gb_UnpackedTarball_set_patchlevel,meson,0))
+
+$(eval $(call gb_UnpackedTarball_add_patches,meson, \
+	external/meson/meson-msvc-linker-path.patch \
+))
+
 ifeq ($(OS),WNT)
 # hack to make meson use a specific VS version and not always the latest
 # (argument is '-latest' so inner quotes to separate the arguments
