@@ -57,6 +57,7 @@ $(call gb_ExternalProject_get_state_target,harfbuzz,build) : | $(call gb_Externa
 	$(call gb_ExternalProject_run,build,\
 		PKG_CONFIG_PATH="${PKG_CONFIG_PATH}$(LIBO_PATH_SEPARATOR)$(gb_UnpackedTarball_workdir)/graphite$(if $(SYSTEM_ICU),,$(LIBO_PATH_SEPARATOR)$(gb_UnpackedTarball_workdir)/icu)" \
 		PYTHONWARNINGS= \
+		$(gb_MESON_WINDOWS_NATIVE_ENV) \
 		$(MESON) setup --wrap-mode nofallback builddir \
 			-Ddefault_library=static -Dbuildtype=$(if $(ENABLE_DBGUTIL),debug,$(if $(ENABLE_DEBUG),debugoptimized,release)) \
 			$(addsuffix "$(strip $(harfbuzz_cpp_args))",-Dc_args= -Dcpp_args=) \

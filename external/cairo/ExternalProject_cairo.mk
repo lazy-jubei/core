@@ -78,6 +78,7 @@ $(call gb_ExternalProject_get_state_target,cairo,build) :
 	$(call gb_Trace_StartRange,cairo,EXTERNAL)
 	$(file >$(gb_UnpackedTarball_workdir)/cairo/cross-file.txt,$(gb_cairo_cross_compile))
 	$(call gb_ExternalProject_run,build,\
+		$(gb_MESON_WINDOWS_NATIVE_ENV) \
 		PYTHONWARNINGS= \
 		PKG_CONFIG_TOP_BUILD_DIR= \
 		$(if $(filter ANDROID iOS,$(OS)),CFLAGS="$(if $(debug),-g) $(gb_VISIBILITY_FLAGS)") \

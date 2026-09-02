@@ -50,6 +50,7 @@ $(call gb_ExternalProject_get_state_target,pixman,build) :
 			  $(if $(filter EMSCRIPTEN,$(OS)),-O3 -pthread -msimd128 ) \
 			  $(if $(filter -fsanitize=undefined,$(CC)),-fno-sanitize=function ) \
 			" && \
+		$(gb_MESON_WINDOWS_NATIVE_ENV) \
 		$(MESON) setup --wrap-mode nofallback builddir \
 			-Ddefault_library=$(if $(filter TRUE,$(DISABLE_DYNLOADING)),static,shared) \
 			$(if $(call gb_Module__symbols_enabled,pixman),-Dc_args="$$PIXMAP_CFLAGS") \
