@@ -668,7 +668,7 @@ gb_AUTOCONF_WRAPPERS = \
 # path for Meson-based external projects. Meson locates link.exe by name, so
 # also put the MSVC tool directory on the PATH inherited by native Python.
 gb_MESON_WINDOWS_NATIVE_ENV = \
-	PATH="$(shell cygpath -u $(COMPATH)/bin):$(PATH)" \
+	PATH="$(shell cygpath -u $(dir $(lastword $(filter-out -%,$(CC))))):$(shell cygpath -up '$(PATH)')" \
 	CC="$(shell cygpath -m $(filter-out -%,$(CC))) $(filter -%,$(CC))" \
 	CXX="$(shell cygpath -m $(filter-out -%,$(CXX))) $(filter -%,$(CXX))"
 
