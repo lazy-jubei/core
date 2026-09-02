@@ -197,7 +197,10 @@ jobs:
           export MSYS2_ENV_CONV_EXCL='REAL_CC;REAL_CXX;REAL_BUILD_CC;REAL_BUILD_CXX'
           # Exercise the bundled Meson project used by the MSVC build before
           # the long full build. Cairo and Pixman use native gbuild on MSVC.
-          make MSYSTEM= -j3 \
+          # Configure selected the native MinGW pkgconf executable. It expects
+          # Windows-style semicolon-delimited search paths even though make is
+          # running in an MSYS shell.
+          make MSYSTEM= LIBO_PATH_SEPARATOR=';' -j3 \
             ExternalProject_harfbuzz \
             2>&1 | tee meson-prerequisites.log
 
