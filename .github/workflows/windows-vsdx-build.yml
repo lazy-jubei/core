@@ -191,16 +191,21 @@ jobs:
           export MSYS2_ENV_CONV_EXCL='REAL_CC;REAL_CXX;REAL_BUILD_CC;REAL_BUILD_CXX'
           make MSYSTEM= -j3 ExternalProject_firebird 2>&1 | tee firebird.log
 
-      - name: Build extras module serially
+      - name: Build bundled template packages serially
         shell: msys2 {0}
         run: |
           set -euxo pipefail
           unset MSYSTEM INCLUDE UCRTVersion
           export MSYS2_ENV_CONV_EXCL='REAL_CC;REAL_CXX;REAL_BUILD_CC;REAL_BUILD_CXX'
-          # Presentation templates share multi-target ZIP recipes. Building the
-          # complete module serially avoids concurrent writers while also
-          # producing the module marker consumed by the later parallel build.
-          make MSYSTEM= -j1 Module_extras 2>&1 | tee extras.log
+          # Template archives use multi-target ZIP recipes. LibreOffice's outer
+          # make invokes gbuild with PARALLELISM, so -j1 alone does not serialize
+          # the inner make. Build only the affected packages with both controls.
+          make MSYSTEM= PARALLELISM=1 -j1 \
+            Package_tplpresnt \
+            Package_tplwizard \
+            Package_templates \
+            Package_tplwizdesktop \
+            2>&1 | tee templates.log
 
       - name: Build LibreOfficeDev
         shell: msys2 {0}
@@ -261,7 +266,7 @@ jobs:
             autogen.log
             fetch.log
             firebird.log
-            extras.log
+            templates.log
             build.log
             visio-tests.log
             config.log
