@@ -128,13 +128,15 @@ jobs:
           cp /mingw64/bin/ninja.exe /usr/bin/ninja.exe
           echo "Native ninja: $("$ninja_dir/ninja.exe" --version)"
           echo "$(cygpath -w "$ninja_dir")" >> "$GITHUB_PATH"
-          # Meson checks the NINJA environment variable before it searches the
-          # PATH (mesonbuild/environment.py: os.environ.get("NINJA")). A PATH
-          # entry added here does not reliably reach the native meson process
-          # (launched via the MSYS make -> sh -> native-python chain), but a
-          # plain NINJA variable does. Point it straight at the native ninja so
-          # backend detection never depends on PATH propagation.
-          echo "NINJA=$(cygpath -w "$ninja_dir/ninja.exe")" >> "$GITHUB_ENV"
+          # NOTE: intentionally NOT exporting a NINJA environment variable.
+          # Meson (mesonbuild/environment.py detect_ninja_command_and_version)
+          # uses NINJA *exclusively* when it is set and does not fall back to a
+          # PATH search, so a NINJA value the bundled Meson process cannot
+          # resolve makes backend detection fail outright. Instead, the "Build
+          # Meson prerequisites" step places this ninja inside the directories
+          # that make up Meson's own PATH (see gb_Python_PRECOMMAND in
+          # solenv/gbuild/platform/com_MSC_class.mk), where a plain PATH search
+          # finds it.
 
       - name: Inspect Windows build prerequisites
         shell: pwsh
@@ -228,37 +230,63 @@ jobs:
         run: |
           set -euxo pipefail
           unset MSYSTEM INCLUDE UCRTVersion
-          # NINJA is set (via GITHUB_ENV) by the expose-ninja step to a native
-          # Windows path. Exclude it from MSYS2 env conversion so it reaches the
-          # native meson process verbatim instead of being mangled.
-          export MSYS2_ENV_CONV_EXCL='REAL_CC;REAL_CXX;REAL_BUILD_CC;REAL_BUILD_CXX;NINJA'
+          export MSYS2_ENV_CONV_EXCL='REAL_CC;REAL_CXX;REAL_BUILD_CC;REAL_BUILD_CXX;NINJA_DUMP'
           # Exercise the bundled Meson project used by the MSVC build before
           # the long full build. Cairo and Pixman use native gbuild on MSVC.
           # LIBO_PATH_SEPARATOR=';' makes the recipe emit the semicolon
           # (Windows) separator that the native MinGW pkgconf expects when it
           # is handed a Windows-form PKG_CONFIG_PATH.
-          # Meson's default backend is Ninja. Meson checks the NINJA env var
-          # before searching PATH, so detection no longer depends on PATH
-          # propagation through the MSYS make -> sh -> native-python chain.
-          # Diagnostics: confirm the NINJA variable reaches the native process,
-          # both as a direct child and through MSYS make (meson's launch path).
-          echo "=== ninja diagnostics ==="
-          echo "NINJA (this shell) = ${NINJA:-<unset>}"
-          # Probe what NINJA a native process launched via MSYS make (meson's
-          # launch path) actually sees. The bundled python is not built yet at
-          # this point, so use powershell with a script file (avoids inline
-          # quoting problems). Reports the NINJA value and whether that file
-          # exists, to attribute a detection failure precisely.
-          probe_ps1="meson_ninja_probe.ps1"
-          probe_mk="meson_ninja_probe.mk"
-          printf 'Write-Output ("NINJA_VIA_MAKE=" + $env:NINJA)\n$n = $env:NINJA\nif ($n -and (Test-Path -LiteralPath $n)) { Write-Output "NINJA_FILE_EXISTS" } else { Write-Output "NINJA_FILE_MISSING_OR_UNSET" }\n' > "$probe_ps1"
-          printf 'all:\n\tpowershell.exe -NoProfile -ExecutionPolicy Bypass -File %s\n' "$probe_ps1" > "$probe_mk"
-          echo "--- native powershell (launched via MSYS make) NINJA ---"
-          make MSYSTEM= -f "$probe_mk" || true
-          rm -f "$probe_ps1" "$probe_mk"
+          # Meson's default backend is Ninja. The bundled Meson runs under the
+          # bundled python with its PATH overridden by gb_Python_PRECOMMAND
+          # (solenv/gbuild/platform/com_MSC_class.mk) to
+          # "<instdir>/program:<lo-root>", so it never sees the system PATH and
+          # no NINJA env var (a set-but-unresolvable NINJA makes Meson fail
+          # without falling back to PATH). Place the native ninja inside those
+          # two directories so Meson's own PATH search finds it.
+          cp /mingw64/bin/ninja.exe "$PWD/ninja.exe"
+          if [ -d instdir/program ]; then
+            cp /mingw64/bin/ninja.exe instdir/program/ninja.exe
+          fi
+          echo "Native ninja placed at: $PWD/ninja.exe and instdir/program/ninja.exe"
+          # Diagnostic: capture the environment the bundled python (the Meson
+          # interpreter) actually sees. sitecustomize is auto-imported at
+          # python startup and <instdir>/program is on that python's PYTHONPATH
+          # (same gb_Python_PRECOMMAND), so this snippet runs inside the Meson
+          # process. It dumps the relevant variables, then re-executes any
+          # pre-existing sitecustomize so it does not shadow one. Every error is
+          # swallowed so this can never break the build.
+          if [ -d instdir/program ]; then
+            export NINJA_DUMP="$(cygpath -w "$PWD/ninja_env_dump.txt")"
+            {
+              printf '%s\n' 'import os, sys'
+              printf '%s\n' 'try:'
+              printf '%s\n' '    _p = os.environ.get("NINJA_DUMP")'
+              printf '%s\n' '    if _p:'
+              printf '%s\n' '        with open(_p, "a") as _f:'
+              printf '%s\n' '            _f.write("=== python " + sys.executable + " ===\n")'
+              printf '%s\n' '            for _k in ("NINJA", "PATH", "PYTHONHOME", "PYTHONPATH"):'
+              printf '%s\n' '                _f.write(_k + " = " + repr(os.environ.get(_k)) + "\n")'
+              printf '%s\n' 'except Exception:'
+              printf '%s\n' '    pass'
+              printf '%s\n' 'try:'
+              printf '%s\n' '    import os as _os, sysconfig as _sc, importlib.util as _iu'
+              printf '%s\n' '    _sp = _sc.get_paths().get("purelib")'
+              printf '%s\n' '    if _sp:'
+              printf '%s\n' '        _c = _os.path.join(_sp, "sitecustomize.py")'
+              printf '%s\n' '        if _os.path.exists(_c):'
+              printf '%s\n' '            _s = _iu.spec_from_file_location("_orig_sitecustomize", _c)'
+              printf '%s\n' '            if _s and _s.loader:'
+              printf '%s\n' '                _m = _iu.module_from_spec(_s)'
+              printf '%s\n' '                _s.loader.exec_module(_m)'
+              printf '%s\n' 'except Exception:'
+              printf '%s\n' '    pass'
+            } > instdir/program/sitecustomize.py
+          fi
           make MSYSTEM= LIBO_PATH_SEPARATOR=';' -j3 \
             ExternalProject_harfbuzz \
             2>&1 | tee meson-prerequisites.log
+          echo "=== ninja env dump (captured inside the bundled python) ==="
+          cat "$PWD/ninja_env_dump.txt" 2>/dev/null || echo "(no dump produced)"
 
       - name: Build Firebird prerequisite
         shell: msys2 {0}
@@ -312,6 +340,18 @@ jobs:
           unset MSYSTEM INCLUDE UCRTVersion
           export MSYS2_ENV_CONV_EXCL='REAL_CC;REAL_CXX;REAL_BUILD_CC;REAL_BUILD_CXX'
           make MSYSTEM= -j3 CppunitTest_sd_visio_export_tests 2>&1 | tee visio-tests.log
+
+      - name: Remove build-only helpers from the install tree
+        shell: msys2 {0}
+        run: |
+          set -eux
+          # The "Build Meson prerequisites" step placed ninja.exe and a
+          # sitecustomize.py diagnostic inside instdir/program so the bundled
+          # Meson (whose PATH is that directory) could find its Ninja backend.
+          # All Meson-driven builds are done by now; these are build-time
+          # helpers, not part of the product, so remove them before the
+          # install tree is verified and packaged.
+          rm -f instdir/program/ninja.exe instdir/program/sitecustomize.py
 
       - name: Verify the portable program
         shell: pwsh
