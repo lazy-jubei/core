@@ -128,6 +128,13 @@ jobs:
           cp /mingw64/bin/ninja.exe /usr/bin/ninja.exe
           echo "Native ninja: $("$ninja_dir/ninja.exe" --version)"
           echo "$(cygpath -w "$ninja_dir")" >> "$GITHUB_PATH"
+          # Meson checks the NINJA environment variable before it searches the
+          # PATH (mesonbuild/environment.py: os.environ.get("NINJA")). A PATH
+          # entry added here does not reliably reach the native meson process
+          # (launched via the MSYS make -> sh -> native-python chain), but a
+          # plain NINJA variable does. Point it straight at the native ninja so
+          # backend detection never depends on PATH propagation.
+          echo "NINJA=$(cygpath -w "$ninja_dir/ninja.exe")" >> "$GITHUB_ENV"
 
       - name: Inspect Windows build prerequisites
         shell: pwsh
@@ -221,24 +228,34 @@ jobs:
         run: |
           set -euxo pipefail
           unset MSYSTEM INCLUDE UCRTVersion
-          export MSYS2_ENV_CONV_EXCL='REAL_CC;REAL_CXX;REAL_BUILD_CC;REAL_BUILD_CXX'
+          # NINJA is set (via GITHUB_ENV) by the expose-ninja step to a native
+          # Windows path. Exclude it from MSYS2 env conversion so it reaches the
+          # native meson process verbatim instead of being mangled.
+          export MSYS2_ENV_CONV_EXCL='REAL_CC;REAL_CXX;REAL_BUILD_CC;REAL_BUILD_CXX;NINJA'
           # Exercise the bundled Meson project used by the MSVC build before
           # the long full build. Cairo and Pixman use native gbuild on MSVC.
           # LIBO_PATH_SEPARATOR=';' makes the recipe emit the semicolon
           # (Windows) separator that the native MinGW pkgconf expects when it
           # is handed a Windows-form PKG_CONFIG_PATH.
-          # Meson's default backend is Ninja, provided on the Windows PATH by
-          # the "Expose native ninja on the Windows PATH" step (which copies it
-          # to a dedicated dir and adds it via GITHUB_PATH). An entry appended
-          # to the MSYS PATH inside this step does not reliably reach the
-          # native meson process launched through the MSYS make.
-          # Diagnostics: show what PATH the native (powershell) child sees, so
-          # a ninja detection failure can be attributed to PATH propagation.
-          echo "=== ninja PATH diagnostics ==="
-          echo "--- MSYS PATH (this shell), ninja/mingw64 entries ---"
-          echo "$PATH" | tr ':' '\n' | grep -i "ninja\|mingw64" || echo "(none in MSYS PATH)"
-          echo "--- native PATH (powershell probe), ninja/mingw64 entries ---"
-          powershell.exe -NoProfile -Command "[Environment]::GetEnvironmentVariable('PATH','Process')" 2>&1 | tr ';' '\n' | grep -i "ninja\|mingw64" || echo "(none in native PATH)"
+          # Meson's default backend is Ninja. Meson checks the NINJA env var
+          # before searching PATH, so detection no longer depends on PATH
+          # propagation through the MSYS make -> sh -> native-python chain.
+          # Diagnostics: confirm the NINJA variable reaches the native process,
+          # both as a direct child and through MSYS make (meson's launch path).
+          echo "=== ninja diagnostics ==="
+          echo "NINJA (this shell) = ${NINJA:-<unset>}"
+          probe_py="$(ls instdir/program/python-core-*/bin/python.exe 2>/dev/null | head -n1 || true)"
+          if [ -n "$probe_py" ]; then
+            echo "--- native python (direct child of this shell) ---"
+            "$probe_py" -c "import os,shutil; print('NINJA=', os.environ.get('NINJA','-')); print('which_ninja=', shutil.which('ninja'))"
+            probe_script="/tmp/meson_ninja_probe.py"
+            probe_mk="/tmp/meson_ninja_probe.mk"
+            printf 'import os, shutil\nprint("MAKE-CHILD NINJA=" + os.environ.get("NINJA", "-"))\nprint("MAKE-CHILD which_ninja=" + str(shutil.which("ninja")))\nprint("MAKE-CHILD PATH has ninja-bin: " + str("ninja-bin" in os.environ.get("PATH", "")))\n' > "$probe_script"
+            printf 'all:\n\t%s %s\n' "$probe_py" "$probe_script" > "$probe_mk"
+            echo "--- native python (launched via MSYS make) ---"
+            make MSYSTEM= -f "$probe_mk" || true
+            rm -f "$probe_script" "$probe_mk"
+          fi
           make MSYSTEM= LIBO_PATH_SEPARATOR=';' -j3 \
             ExternalProject_harfbuzz \
             2>&1 | tee meson-prerequisites.log
