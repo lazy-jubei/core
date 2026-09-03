@@ -244,18 +244,18 @@ jobs:
           # both as a direct child and through MSYS make (meson's launch path).
           echo "=== ninja diagnostics ==="
           echo "NINJA (this shell) = ${NINJA:-<unset>}"
-          probe_py="$(ls instdir/program/python-core-*/bin/python.exe 2>/dev/null | head -n1 || true)"
-          if [ -n "$probe_py" ]; then
-            echo "--- native python (direct child of this shell) ---"
-            "$probe_py" -c "import os,shutil; print('NINJA=', os.environ.get('NINJA','-')); print('which_ninja=', shutil.which('ninja'))"
-            probe_script="/tmp/meson_ninja_probe.py"
-            probe_mk="/tmp/meson_ninja_probe.mk"
-            printf 'import os, shutil\nprint("MAKE-CHILD NINJA=" + os.environ.get("NINJA", "-"))\nprint("MAKE-CHILD which_ninja=" + str(shutil.which("ninja")))\nprint("MAKE-CHILD PATH has ninja-bin: " + str("ninja-bin" in os.environ.get("PATH", "")))\n' > "$probe_script"
-            printf 'all:\n\t%s %s\n' "$probe_py" "$probe_script" > "$probe_mk"
-            echo "--- native python (launched via MSYS make) ---"
-            make MSYSTEM= -f "$probe_mk" || true
-            rm -f "$probe_script" "$probe_mk"
-          fi
+          # Probe what NINJA a native process launched via MSYS make (meson's
+          # launch path) actually sees. The bundled python is not built yet at
+          # this point, so use powershell with a script file (avoids inline
+          # quoting problems). Reports the NINJA value and whether that file
+          # exists, to attribute a detection failure precisely.
+          probe_ps1="meson_ninja_probe.ps1"
+          probe_mk="meson_ninja_probe.mk"
+          printf 'Write-Output ("NINJA_VIA_MAKE=" + $env:NINJA)\n$n = $env:NINJA\nif ($n -and (Test-Path -LiteralPath $n)) { Write-Output "NINJA_FILE_EXISTS" } else { Write-Output "NINJA_FILE_MISSING_OR_UNSET" }\n' > "$probe_ps1"
+          printf 'all:\n\tpowershell.exe -NoProfile -ExecutionPolicy Bypass -File %s\n' "$probe_ps1" > "$probe_mk"
+          echo "--- native powershell (launched via MSYS make) NINJA ---"
+          make MSYSTEM= -f "$probe_mk" || true
+          rm -f "$probe_ps1" "$probe_mk"
           make MSYSTEM= LIBO_PATH_SEPARATOR=';' -j3 \
             ExternalProject_harfbuzz \
             2>&1 | tee meson-prerequisites.log
