@@ -101,6 +101,7 @@ jobs:
             which
             zip
             mingw-w64-x86_64-pkgconf
+            mingw-w64-x86_64-ninja
 
       - name: Inspect Windows build prerequisites
         shell: pwsh
@@ -197,9 +198,14 @@ jobs:
           export MSYS2_ENV_CONV_EXCL='REAL_CC;REAL_CXX;REAL_BUILD_CC;REAL_BUILD_CXX'
           # Exercise the bundled Meson project used by the MSVC build before
           # the long full build. Cairo and Pixman use native gbuild on MSVC.
-          # Configure selected the native MinGW pkgconf executable. It expects
-          # Windows-style semicolon-delimited search paths even though make is
-          # running in an MSYS shell.
+          # LIBO_PATH_SEPARATOR=';' makes the recipe emit the semicolon
+          # (Windows) separator that the native MinGW pkgconf expects when it
+          # is handed a Windows-form PKG_CONFIG_PATH.
+          # Meson's default backend is Ninja, but the runner's MSYS msystem
+          # only puts /usr/bin on PATH. Append the MinGW64 bin (which holds the
+          # native ninja installed above) so meson can find it; appending keeps
+          # the MSYS/VS tools ahead of any MinGW64 equivalents.
+          export PATH="$PATH:$(cygpath -w /mingw64/bin)"
           make MSYSTEM= LIBO_PATH_SEPARATOR=';' -j3 \
             ExternalProject_harfbuzz \
             2>&1 | tee meson-prerequisites.log
