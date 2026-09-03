@@ -239,14 +239,17 @@ jobs:
           # Meson's default backend is Ninja. The bundled Meson runs under the
           # bundled python with its PATH overridden by gb_Python_PRECOMMAND
           # (solenv/gbuild/platform/com_MSC_class.mk) to
-          # "<instdir>/program:<lo-root>", so it never sees the system PATH and
-          # no NINJA env var (a set-but-unresolvable NINJA makes Meson fail
-          # without falling back to PATH). Place the native ninja inside those
-          # two directories so Meson's own PATH search finds it.
+          # "<instdir>/program:<cwd-at-make-parse-time>", so it never sees the
+          # system PATH and no NINJA env var (a set-but-unresolvable NINJA makes
+          # Meson fail without falling back to PATH). The first PATH entry is
+          # instdir/program, but that directory does not exist yet at the start
+          # of this step (it is created when the bundled python is installed
+          # during this very build), so create it and place the native ninja
+          # there for Meson's own PATH search to find. A copy in the lo-root is
+          # kept as a fallback for the second PATH entry.
           cp /mingw64/bin/ninja.exe "$PWD/ninja.exe"
-          if [ -d instdir/program ]; then
-            cp /mingw64/bin/ninja.exe instdir/program/ninja.exe
-          fi
+          mkdir -p instdir/program
+          cp /mingw64/bin/ninja.exe instdir/program/ninja.exe
           echo "Native ninja placed at: $PWD/ninja.exe and instdir/program/ninja.exe"
           # Diagnostic: capture the environment the bundled python (the Meson
           # interpreter) actually sees. sitecustomize is auto-imported at
@@ -282,11 +285,18 @@ jobs:
               printf '%s\n' '    pass'
             } > instdir/program/sitecustomize.py
           fi
+          set +e
           make MSYSTEM= LIBO_PATH_SEPARATOR=';' -j3 \
             ExternalProject_harfbuzz \
             2>&1 | tee meson-prerequisites.log
+          rc=$?
+          set -e
+          # Print the captured environment even if the build failed, so a
+          # "Could not detect Ninja" can be attributed to the exact PATH the
+          # bundled python (Meson) saw. Then propagate the build's exit code.
           echo "=== ninja env dump (captured inside the bundled python) ==="
           cat "$PWD/ninja_env_dump.txt" 2>/dev/null || echo "(no dump produced)"
+          exit $rc
 
       - name: Build Firebird prerequisite
         shell: msys2 {0}
@@ -396,6 +406,7 @@ jobs:
             autogen.log
             fetch.log
             meson-prerequisites.log
+            ninja_env_dump.txt
             firebird.log
             nss.log
             templates.log
