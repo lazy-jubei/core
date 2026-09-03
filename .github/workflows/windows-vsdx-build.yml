@@ -201,11 +201,20 @@ jobs:
           # LIBO_PATH_SEPARATOR=';' makes the recipe emit the semicolon
           # (Windows) separator that the native MinGW pkgconf expects when it
           # is handed a Windows-form PKG_CONFIG_PATH.
-          # Meson's default backend is Ninja, but the runner's MSYS msystem
-          # only puts /usr/bin on PATH. Append the MinGW64 bin (which holds the
-          # native ninja installed above) so meson can find it; appending keeps
-          # the MSYS/VS tools ahead of any MinGW64 equivalents.
-          export PATH="$PATH:$(cygpath -w /mingw64/bin)"
+          # Meson's default backend is Ninja. The runner's MSYS msystem only
+          # puts /usr/bin on PATH, so append the MinGW64 bin (which holds the
+          # native ninja installed above) so meson can find it. The entry must
+          # stay in MSYS form (/mingw64/bin): MSYS2's environment conversion
+          # turns the well-formed MSYS PATH into a clean Windows-form path for
+          # the native meson process. A pre-converted backslash entry is
+          # mangled and meson fails with "Could not detect Ninja". Appending
+          # keeps the MSYS/VS tools ahead of any MinGW64 equivalents.
+          if [ ! -x /mingw64/bin/ninja.exe ]; then
+            echo "ERROR: native ninja not found at /mingw64/bin/ninja.exe (was mingw-w64-x86_64-ninja installed?)" >&2
+            ls -la /mingw64/bin 2>&1 | grep -i ninja || true
+            exit 1
+          fi
+          export PATH="$PATH:/mingw64/bin"
           make MSYSTEM= LIBO_PATH_SEPARATOR=';' -j3 \
             ExternalProject_harfbuzz \
             2>&1 | tee meson-prerequisites.log
