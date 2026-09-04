@@ -252,39 +252,45 @@ jobs:
           cp /mingw64/bin/ninja.exe instdir/program/ninja.exe
           echo "Native ninja placed at: $PWD/ninja.exe and instdir/program/ninja.exe"
           # Diagnostic: capture the environment the bundled python (the Meson
-          # interpreter) actually sees. sitecustomize is auto-imported at
-          # python startup and <instdir>/program is on that python's PYTHONPATH
-          # (same gb_Python_PRECOMMAND), so this snippet runs inside the Meson
-          # process. It dumps the relevant variables, then re-executes any
-          # pre-existing sitecustomize so it does not shadow one. Every error is
-          # swallowed so this can never break the build.
-          if [ -d instdir/program ]; then
-            export NINJA_DUMP="$(cygpath -w "$PWD/ninja_env_dump.txt")"
-            {
-              printf '%s\n' 'import os, sys'
-              printf '%s\n' 'try:'
-              printf '%s\n' '    _p = os.environ.get("NINJA_DUMP")'
-              printf '%s\n' '    if _p:'
-              printf '%s\n' '        with open(_p, "a") as _f:'
-              printf '%s\n' '            _f.write("=== python " + sys.executable + " ===\n")'
-              printf '%s\n' '            for _k in ("NINJA", "PATH", "PYTHONHOME", "PYTHONPATH"):'
-              printf '%s\n' '                _f.write(_k + " = " + repr(os.environ.get(_k)) + "\n")'
-              printf '%s\n' 'except Exception:'
-              printf '%s\n' '    pass'
-              printf '%s\n' 'try:'
-              printf '%s\n' '    import os as _os, sysconfig as _sc, importlib.util as _iu'
-              printf '%s\n' '    _sp = _sc.get_paths().get("purelib")'
-              printf '%s\n' '    if _sp:'
-              printf '%s\n' '        _c = _os.path.join(_sp, "sitecustomize.py")'
-              printf '%s\n' '        if _os.path.exists(_c):'
-              printf '%s\n' '            _s = _iu.spec_from_file_location("_orig_sitecustomize", _c)'
-              printf '%s\n' '            if _s and _s.loader:'
-              printf '%s\n' '                _m = _iu.module_from_spec(_s)'
-              printf '%s\n' '                _s.loader.exec_module(_m)'
-              printf '%s\n' 'except Exception:'
-              printf '%s\n' '    pass'
-            } > instdir/program/sitecustomize.py
-          fi
+          # interpreter) actually sees. sitecustomize is auto-imported at python
+          # startup; the most reliable location is sys.path[0], which for
+          # `python meson.py` is the directory of meson.py itself
+          # (workdir/UnpackedTarball/meson/). A copy is also placed in
+          # instdir/program. The snippet dumps the relevant variables, then
+          # re-executes any pre-existing sitecustomize so it does not shadow
+          # one. Every error is swallowed so this can never break the build.
+          export NINJA_DUMP="$(cygpath -w "$PWD/ninja_env_dump.txt")"
+          _sc_gen="$PWD/_sitecustomize_gen.py"
+          {
+            printf '%s\n' 'import os, sys'
+            printf '%s\n' 'try:'
+            printf '%s\n' '    _p = os.environ.get("NINJA_DUMP")'
+            printf '%s\n' '    if _p:'
+            printf '%s\n' '        with open(_p, "a") as _f:'
+            printf '%s\n' '            _f.write("=== python " + sys.executable + " ===\n")'
+            printf '%s\n' '            for _k in ("NINJA", "PATH", "PYTHONHOME", "PYTHONPATH"):'
+            printf '%s\n' '                _f.write(_k + " = " + repr(os.environ.get(_k)) + "\n")'
+            printf '%s\n' 'except Exception:'
+            printf '%s\n' '    pass'
+            printf '%s\n' 'try:'
+            printf '%s\n' '    import os as _os, sysconfig as _sc, importlib.util as _iu'
+            printf '%s\n' '    _sp = _sc.get_paths().get("purelib")'
+            printf '%s\n' '    if _sp:'
+            printf '%s\n' '        _c = _os.path.join(_sp, "sitecustomize.py")'
+            printf '%s\n' '        if _os.path.exists(_c):'
+            printf '%s\n' '            _s = _iu.spec_from_file_location("_orig_sitecustomize", _c)'
+            printf '%s\n' '            if _s and _s.loader:'
+            printf '%s\n' '                _m = _iu.module_from_spec(_s)'
+            printf '%s\n' '                _s.loader.exec_module(_m)'
+            printf '%s\n' 'except Exception:'
+            printf '%s\n' '    pass'
+          } > "$_sc_gen"
+          for _sc_dir in "workdir/UnpackedTarball/meson" "instdir/program"; do
+            if [ -d "$_sc_dir" ]; then
+              cp "$_sc_gen" "$_sc_dir/sitecustomize.py"
+            fi
+          done
+          rm -f "$_sc_gen"
           set +e
           make MSYSTEM= LIBO_PATH_SEPARATOR=';' -j3 \
             ExternalProject_harfbuzz \
@@ -296,6 +302,8 @@ jobs:
           # bundled python (Meson) saw. Then propagate the build's exit code.
           echo "=== ninja env dump (captured inside the bundled python) ==="
           cat "$PWD/ninja_env_dump.txt" 2>/dev/null || echo "(no dump produced)"
+          echo "=== instdir/program ninja check (after build) ==="
+          ls -la instdir/program/ninja.exe 2>/dev/null || echo "ninja.exe NOT in instdir/program after build"
           exit $rc
 
       - name: Build Firebird prerequisite
