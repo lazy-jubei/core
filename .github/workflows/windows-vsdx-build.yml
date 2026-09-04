@@ -340,8 +340,23 @@ jobs:
           _meson_dir="workdir/UnpackedTarball/meson"
           mkdir -p "$_meson_dir"
           cp instdir/program/sitecustomize.py "$_meson_dir/sitecustomize.py"
+          # Lightweight diagnostic: is NINJA in make's environment? A tiny
+          # makefile echoes $NINJA; if the export reached make it prints the
+          # value, else an empty bracket. gbuild make inherits this same
+          # environment when the outer make re-invokes it.
+          echo "=== make environment: NINJA ==="
+          echo 'n: ; @echo "NINJA_IN_MAKE=[$(NINJA)]"' > "$PWD/_ninja_probe.mk"
+          make -f "$PWD/_ninja_probe.mk" n 2>&1 | head -3
           set +e
-          make MSYSTEM= LIBO_PATH_SEPARATOR=';' -j3 \
+          # Put NINJA on the make command line: GNU make always exports
+          # command-line variable assignments to the child (gbuild make)
+          # environment, so the bundled Meson python is guaranteed to see it.
+          # Meson (detect_ninja_command_and_version) uses NINJA exclusively
+          # when it is set, and a full path is resolved by checking that exact
+          # file (bypassing the PATH directory search and PATHEXT entirely).
+          # The ninja at that path has its MinGW runtime DLLs alongside it, so
+          # "ninja --version" succeeds.
+          make MSYSTEM= NINJA="$(cygpath -w "$PWD/ninja.exe")" LIBO_PATH_SEPARATOR=';' -j3 \
             ExternalProject_harfbuzz \
             2>&1 | tee meson-prerequisites.log
           rc=$?
