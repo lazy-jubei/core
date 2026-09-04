@@ -281,16 +281,32 @@ jobs:
               cp -f "/mingw64/bin/$_dll" "instdir/program/$_dll"
             fi
           done
+          # libstdc++-6.dll (a direct dep) transitively needs libwinpthread-1.dll,
+          # which is NOT in the ninja's direct import table. Copy the full set of
+          # MinGW runtime DLLs so the ninja (and its deps) can all load in Meson's
+          # restricted environment.
+          for _dll in libgcc_s_seh-1.dll libwinpthread-1.dll libstdc++-6.dll; do
+            if [ -f "/mingw64/bin/$_dll" ]; then
+              cp -f "/mingw64/bin/$_dll" "$PWD/$_dll"
+              cp -f "/mingw64/bin/$_dll" "instdir/program/$_dll"
+            fi
+          done
           echo "ninja DLLs copied alongside the ninja (lo root + instdir/program)"
+          # Capture the exact Meson PATH value the make computes for
+          # gb_Python_PRECOMMAND, so a "Could not detect Ninja" can be attributed
+          # to the real directories Meson searches.
+          echo "=== Meson PATH value (computed for gb_Python_PRECOMMAND) ==="
+          echo "first entry : $(cygpath -u "$PWD/instdir/program")"
+          echo "second entry: $(cygpath.exe -uS 2>&1)"
           # Verify the ninja actually runs with a restricted native PATH that
-          # matches Meson's environment (no /mingw64/bin), confirming the DLL
-          # fix before the long build.
+          # matches Meson's environment (instdir/program + cwd, no /mingw64/bin),
+          # confirming the DLL fix before the long build.
           echo "=== verify ninja runs in a Meson-like restricted environment ==="
           _verify_bat="$PWD/_ninja_verify.bat"
           {
             printf '%s\n' '@echo off'
-            printf '%s\n' "set PATH=$(cygpath -w "$PWD")"
-            printf '%s\n' '"%s" --version' "$(cygpath -w "$PWD/ninja.exe")"
+            printf '%s\n' "set PATH=$(cygpath -w "$PWD")\instdir\program;$(cygpath -w "$PWD")"
+            printf '"%s" --version\n' "$(cygpath -w "$PWD/ninja.exe")"
           } > "$_verify_bat"
           cmd //c "$_verify_bat" || echo "ninja FAILED to run in restricted env (missing DLLs?)"
           echo "=== end ninja DLL fix ==="
