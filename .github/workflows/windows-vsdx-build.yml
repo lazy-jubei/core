@@ -102,6 +102,7 @@ jobs:
             zip
             mingw-w64-x86_64-pkgconf
             mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-binutils
 
       - name: Expose native ninja on the Windows PATH
         shell: msys2 {0}
@@ -263,6 +264,36 @@ jobs:
           # receives from gb_Python_PRECOMMAND.
           export NINJA="$(cygpath -w "$PWD/ninja.exe")"
           echo "NINJA environment variable set to: $NINJA"
+          # The native ninja is a MinGW-w64 binary. Meson's process has a
+          # restricted PATH (gb_Python_PRECOMMAND) that does NOT include
+          # /mingw64/bin, so when Meson runs "ninja --version" the ninja
+          # cannot load its runtime DLLs (libgcc_s_seh-1.dll, etc.) and the
+          # version check fails -> "Could not detect Ninja". Copy the ninja's
+          # DLL dependencies (from /mingw64/bin) into the same directories as
+          # the ninja, so Windows resolves them from the executable's own
+          # directory (first in the DLL search order).
+          echo "=== native ninja DLL dependencies ==="
+          /mingw64/bin/objdump.exe -p /mingw64/bin/ninja.exe 2>/dev/null | sed -n 's/.*DLL Name: //p' | sed 's/[[:space:]]*$//' | sort -u > "$PWD/ninja_dlls.txt"
+          cat "$PWD/ninja_dlls.txt"
+          for _dll in $(cat "$PWD/ninja_dlls.txt"); do
+            if [ -f "/mingw64/bin/$_dll" ]; then
+              cp -f "/mingw64/bin/$_dll" "$PWD/$_dll"
+              cp -f "/mingw64/bin/$_dll" "instdir/program/$_dll"
+            fi
+          done
+          echo "ninja DLLs copied alongside the ninja (lo root + instdir/program)"
+          # Verify the ninja actually runs with a restricted native PATH that
+          # matches Meson's environment (no /mingw64/bin), confirming the DLL
+          # fix before the long build.
+          echo "=== verify ninja runs in a Meson-like restricted environment ==="
+          _verify_bat="$PWD/_ninja_verify.bat"
+          {
+            printf '%s\n' '@echo off'
+            printf '%s\n' "set PATH=$(cygpath -w "$PWD")"
+            printf '%s\n' '"%s" --version' "$(cygpath -w "$PWD/ninja.exe")"
+          } > "$_verify_bat"
+          cmd //c "$_verify_bat" || echo "ninja FAILED to run in restricted env (missing DLLs?)"
+          echo "=== end ninja DLL fix ==="
           # Diagnostic: capture the environment the bundled python (Meson) sees.
           # The meson.py tarball is extracted DURING this build (the meson dir
           # does not exist at the start of the step), so a hook placed into
@@ -308,6 +339,9 @@ jobs:
           cat instdir/program/ninja_env_dump.txt 2>/dev/null || echo "(no dump in instdir/program)"
           echo "=== instdir/program ninja check (after build) ==="
           ls -la instdir/program/ninja.exe instdir/program/ninja 2>/dev/null || echo "ninja NOT in instdir/program after build"
+          echo "=== meson-log.txt (ninja detection details) ==="
+          tail -30 workdir/UnpackedTarball/harfbuzz/builddir/meson-logs/meson-log.txt 2>/dev/null || echo "(no meson-log.txt)"
+          cp -f workdir/UnpackedTarball/harfbuzz/builddir/meson-logs/meson-log.txt "$PWD/meson-log.txt" 2>/dev/null || true
           exit $rc
 
       - name: Build Firebird prerequisite
@@ -422,6 +456,8 @@ jobs:
             meson-prerequisites.log
             workdir/UnpackedTarball/meson/ninja_env_dump.txt
             instdir/program/ninja_env_dump.txt
+            meson-log.txt
+            ninja_dlls.txt
             firebird.log
             nss.log
             templates.log
