@@ -670,7 +670,8 @@ gb_AUTOCONF_WRAPPERS = \
 gb_MESON_WINDOWS_NATIVE_ENV = \
 	AR="$(shell cygpath -m $(dir $(lastword $(filter-out -%,$(CC))))lib.exe)" \
 	CC="$(shell cygpath -m $(filter-out -%,$(CC))) $(filter -%,$(CC))" \
-	CXX="$(shell cygpath -m $(filter-out -%,$(CXX))) $(filter -%,$(CXX))"
+	CXX="$(shell cygpath -m $(filter-out -%,$(CXX))) $(filter -%,$(CXX))" \
+	INCLUDE="$(gb_ExternalProject_INCLUDE)"
 
 gb_ExternalProject_INCLUDE := \
 	$(subst -I,,$(subst $(WHITESPACE),;,$(SOLARINC)))
