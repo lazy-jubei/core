@@ -250,37 +250,49 @@ jobs:
           cp /mingw64/bin/ninja.exe "$PWD/ninja.exe"
           mkdir -p instdir/program
           cp /mingw64/bin/ninja.exe instdir/program/ninja.exe
-          echo "Native ninja placed at: $PWD/ninja.exe and instdir/program/ninja.exe"
+          # Also place an extensionless "ninja" in instdir/program so a PATH
+          # search finds it even if the Meson process has an empty PATHEXT.
+          cp /mingw64/bin/ninja.exe instdir/program/ninja
+          echo "Native ninja placed at: $PWD/ninja.exe, instdir/program/ninja.exe and instdir/program/ninja"
+          # Primary fix: set NINJA to the full path of the ninja we placed in
+          # the lo root. Meson (detect_ninja_command_and_version) uses NINJA
+          # exclusively when it is set, and a full path is resolved by checking
+          # that exact file (bypassing the PATH directory search and PATHEXT
+          # entirely). This is the most direct way to give Meson its Ninja
+          # backend, independent of whatever PATH the bundled python actually
+          # receives from gb_Python_PRECOMMAND.
+          export NINJA="$(cygpath -w "$PWD/ninja.exe")"
+          echo "NINJA environment variable set to: $NINJA"
           # Diagnostic: capture the environment the bundled python (Meson) sees.
-          # A plain sitecustomize is NOT imported by this python (it appears to
-          # be run with -S / a custom site), so instead import a small module
-          # from the top of meson.py. meson.py is the executed entry point, so
-          # this import is guaranteed to run. The module writes its dump to a
-          # file next to itself, so it does not depend on any environment
-          # variable reaching the process.
+          # The meson.py tarball is extracted DURING this build (the meson dir
+          # does not exist at the start of the step), so a hook placed into
+          # meson.py at step start is overwritten by the extraction and never
+          # runs. Instead, drop a sitecustomize.py (a new file the extraction
+          # leaves intact) into both instdir/program (on Meson's PYTHONPATH)
+          # and the pre-created meson dir (sys.path[0] when meson.py runs). If
+          # the bundled python imports site, one of these writes the real
+          # NINJA/PATH/PATHEXT/PYTHONHOME/PYTHONPATH to a file we read after
+          # the build.
+          {
+            printf '%s\n' 'import os'
+            printf '%s\n' 'try:'
+            printf '%s\n' '    _base = os.path.dirname(os.path.abspath(__file__))'
+            printf '%s\n' '    _p = os.path.join(_base, "ninja_env_dump.txt")'
+            printf '%s\n' '    with open(_p, "a") as _f:'
+            printf '%s\n' '        _f.write("=== meson env (sitecustomize) ===\n")'
+            printf '%s\n' '        _f.write("CWD = " + repr(os.getcwd()) + "\n")'
+            printf '%s\n' '        for _k in ("NINJA", "PATH", "PATHEXT", "PYTHONHOME", "PYTHONPATH"):'
+            printf '%s\n' '            _f.write(_k + " = " + repr(os.environ.get(_k)) + "\n")'
+            printf '%s\n' 'except Exception as _e:'
+            printf '%s\n' '    try:'
+            printf '%s\n' '        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "ninja_env_dump.txt"), "a") as _f:'
+            printf '%s\n' '            _f.write("sitecustomize error: " + repr(_e) + "\n")'
+            printf '%s\n' '    except Exception:'
+            printf '%s\n' '        pass'
+          } > instdir/program/sitecustomize.py
           _meson_dir="workdir/UnpackedTarball/meson"
-          if [ -d "$_meson_dir" ]; then
-            {
-              printf '%s\n' 'import os'
-              printf '%s\n' 'try:'
-              printf '%s\n' '    _base = os.path.dirname(os.path.abspath(__file__))'
-              printf '%s\n' '    _p = os.path.join(_base, "ninja_env_dump.txt")'
-              printf '%s\n' '    with open(_p, "a") as _f:'
-              printf '%s\n' '        _f.write("=== meson env ===\n")'
-              printf '%s\n' '        for _k in ("NINJA", "PATH", "PYTHONHOME", "PYTHONPATH", "PATHEXT"):'
-              printf '%s\n' '            _f.write(_k + " = " + repr(os.environ.get(_k)) + "\n")'
-              printf '%s\n' 'except Exception:'
-              printf '%s\n' '    pass'
-            } > "$_meson_dir/_ninja_diag.py"
-            if ! grep -q "^import _ninja_diag" "$_meson_dir/meson.py"; then
-              _tmp_py="$_meson_dir/_meson_py_tmp"
-              {
-                printf '%s\n' 'import _ninja_diag'
-                cat "$_meson_dir/meson.py"
-              } > "$_tmp_py"
-              mv "$_tmp_py" "$_meson_dir/meson.py"
-            fi
-          fi
+          mkdir -p "$_meson_dir"
+          cp instdir/program/sitecustomize.py "$_meson_dir/sitecustomize.py"
           set +e
           make MSYSTEM= LIBO_PATH_SEPARATOR=';' -j3 \
             ExternalProject_harfbuzz \
@@ -290,10 +302,12 @@ jobs:
           # Print the captured environment even if the build failed, so a
           # "Could not detect Ninja" can be attributed to the exact PATH the
           # bundled python (Meson) saw. Then propagate the build's exit code.
-          echo "=== ninja env dump (captured inside the bundled python) ==="
-          cat workdir/UnpackedTarball/meson/ninja_env_dump.txt 2>/dev/null || echo "(no dump produced)"
+          echo "=== ninja env dump (meson dir) ==="
+          cat workdir/UnpackedTarball/meson/ninja_env_dump.txt 2>/dev/null || echo "(no dump in meson dir)"
+          echo "=== ninja env dump (instdir/program) ==="
+          cat instdir/program/ninja_env_dump.txt 2>/dev/null || echo "(no dump in instdir/program)"
           echo "=== instdir/program ninja check (after build) ==="
-          ls -la instdir/program/ninja.exe 2>/dev/null || echo "ninja.exe NOT in instdir/program after build"
+          ls -la instdir/program/ninja.exe instdir/program/ninja 2>/dev/null || echo "ninja NOT in instdir/program after build"
           exit $rc
 
       - name: Build Firebird prerequisite
@@ -353,13 +367,15 @@ jobs:
         shell: msys2 {0}
         run: |
           set -eux
-          # The "Build Meson prerequisites" step placed ninja.exe inside
-          # instdir/program so the bundled Meson (whose PATH includes that
-          # directory) could find its Ninja backend. All Meson-driven builds
-          # are done by now; this is a build-time helper, not part of the
-          # product, so remove it before the install tree is verified and
+          # The "Build Meson prerequisites" step placed ninja (ninja.exe and an
+          # extensionless copy) inside instdir/program and a sitecustomize.py
+          # diagnostic into instdir/program and the meson dir so the bundled
+          # Meson could find its Ninja backend. All Meson-driven builds are
+          # done by now; these are build-time helpers, not part of the
+          # product, so remove them before the install tree is verified and
           # packaged.
-          rm -f instdir/program/ninja.exe
+          rm -f instdir/program/ninja.exe instdir/program/ninja
+          rm -f instdir/program/sitecustomize.py workdir/UnpackedTarball/meson/sitecustomize.py
 
       - name: Verify the portable program
         shell: pwsh
@@ -405,6 +421,7 @@ jobs:
             fetch.log
             meson-prerequisites.log
             workdir/UnpackedTarball/meson/ninja_env_dump.txt
+            instdir/program/ninja_env_dump.txt
             firebird.log
             nss.log
             templates.log
