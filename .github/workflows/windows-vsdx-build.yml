@@ -226,14 +226,17 @@ jobs:
           export PKG_CONFIG=/mingw64/bin/pkgconf.exe
           export PATCH="$PWD/.github/scripts/msys2-patch-wrapper.sh"
           export GNUTAR="$PWD/.github/scripts/msys2-tar-wrapper.sh"
+          dotnet="$(cygpath -m 'C:\Program Files\dotnet\dotnet.exe')"
+          "$dotnet" --version
           ./autogen.sh \
             --build=x86_64-pc-cygwin \
             --host=x86_64-pc-cygwin \
             --with-visual-studio=2022 \
             --disable-debug \
-            --disable-cli \
+            --with-dotnet="$dotnet" \
             --without-java \
             --without-doxygen \
+            --enable-odk \
             --with-lang=en-US \
             --with-package-format=msi \
             --disable-online-update \
@@ -612,6 +615,7 @@ jobs:
             --with-lang=en-US \
             --disable-online-update \
             --enable-epm \
+            --with-epm=internal \
             --with-package-format=deb \
             --with-external-tar="$PWD/.cache/lo-externaltar" \
             2>&1 | tee autogen-debian.log
@@ -625,6 +629,13 @@ jobs:
         run: |
           set -o pipefail
           make -j"$(nproc)" 2>&1 | tee build-debian.log
+
+      - name: Save compiler cache after a failed build
+        if: failure()
+        uses: actions/cache/save@v5
+        with:
+          path: .ccache
+          key: libreoffice-vsdx-linux-ccache-${{ github.sha }}
 
       - name: Run VSDX export tests
         run: |
