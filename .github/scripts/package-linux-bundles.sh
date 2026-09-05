@@ -182,7 +182,9 @@ EOF
     flatpak build-bundle --arch=x86_64 \
         --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo \
         "$flatpak_repository" "$flatpak_bundle" "$app_id" main
-    flatpak build-import-bundle "$work_directory/flatpak-validation-repository" "$flatpak_bundle"
+    flatpak_validation_repository="$work_directory/flatpak-validation-repository"
+    ostree init --repo="$flatpak_validation_repository" --mode=archive-z2
+    flatpak build-import-bundle "$flatpak_validation_repository" "$flatpak_bundle"
     bundle_artifacts+=("$flatpak_bundle")
 fi
 
@@ -239,8 +241,8 @@ apps:
       - wayland
       - x11
 EOF
-    SNAP="$snap_root" HOME="$home_directory" "$snap_root/bin/libreoffice-vsdx" --headless --version
     snap_bundle="$artifact_directory/libreoffice-vsdx_${version}_amd64.snap"
+    snap pack --check-skeleton "$snap_root"
     snap pack --filename "$snap_bundle" "$snap_root"
     unsquashfs -cat "$snap_bundle" meta/snap.yaml
     bundle_artifacts+=("$snap_bundle")
