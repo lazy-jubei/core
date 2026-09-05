@@ -96,6 +96,12 @@ jobs:
           set -o pipefail
           make -j"$(nproc)" 2>&1 | tee 'build-${{ inputs.format }}.log'
 
+      - name: Save compiler cache after a successful build
+        uses: actions/cache/save@v5
+        with:
+          path: .ccache
+          key: libreoffice-vsdx-linux-${{ inputs.format }}-ccache-${{ github.sha }}
+
       - name: Save compiler cache after a failed build
         if: failure()
         uses: actions/cache/save@v5
