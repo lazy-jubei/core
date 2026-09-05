@@ -3,8 +3,8 @@
 This repository is a fork of upstream LibreOffice with
 support for exporting Microsoft Visio VSDX files to LibreOffice Draw. 
 
-Save with the "Microsoft Visio 2013-365 Drawing (\*.vsdx)" filter in
-Save As / Save a Copy, or convert from the command line:
+You can save .vsdx files using the normal "Save As" / "Save a copy" dialog.
+Alternatively in command line:
 
     program\soffice.com --headless --convert-to "vsdx:Visio VSDX" --outdir output input.odg
 
