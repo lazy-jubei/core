@@ -17,4 +17,4 @@ jobs:
       format: flatpak
       artifact_name: LibreOfficeDev-VSDX-Flatpak-x86_64
       artifact_path: artifacts/bundles/LibreOfficeDev-VSDX-x86_64.flatpak
-      packaging_tools: appstream-util desktop-file-utils flatpak
+      packaging_tools: appstream-util desktop-file-utils flatpak ostree
