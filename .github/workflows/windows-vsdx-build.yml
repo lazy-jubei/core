@@ -231,6 +231,7 @@ jobs:
             --host=x86_64-pc-cygwin \
             --with-visual-studio=2022 \
             --disable-debug \
+            --disable-cli \
             --without-java \
             --without-doxygen \
             --with-lang=en-US \
