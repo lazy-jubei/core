@@ -2,6 +2,17 @@ name: Windows and Debian VSDX builds
 
 on:
   workflow_dispatch:
+    inputs:
+      build_windows:
+        description: Build Windows portable and MSI packages
+        required: true
+        type: boolean
+        default: true
+      build_linux:
+        description: Build Debian, AppImage, Flatpak and Snap packages
+        required: true
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -12,6 +23,7 @@ concurrency:
 
 jobs:
   build-windows:
+    if: inputs.build_windows
     runs-on: windows-2022
     timeout-minutes: 355
     env:
@@ -543,6 +555,7 @@ jobs:
           retention-days: 14
 
   build-debian:
+    if: inputs.build_linux
     runs-on: ubuntu-24.04
     timeout-minutes: 355
     env:
@@ -667,3 +680,77 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
           compression-level: 6
+
+  package-linux-bundles:
+    if: inputs.build_linux
+    needs: build-debian
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - format: appimage
+            artifact: LibreOfficeDev-VSDX-AppImage-x86_64
+            path: artifacts/bundles/LibreOfficeDev-VSDX-x86_64.AppImage
+            packages: curl
+          - format: flatpak
+            artifact: LibreOfficeDev-VSDX-Flatpak-x86_64
+            path: artifacts/bundles/LibreOfficeDev-VSDX-x86_64.flatpak
+            packages: appstream-util desktop-file-utils flatpak
+          - format: snap
+            artifact: LibreOfficeDev-VSDX-Snap-amd64
+            path: artifacts/bundles/*.snap
+            packages: snapd squashfs-tools
+
+    steps:
+      - name: Check out the VSDX branch
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+
+      - name: Download Debian packages
+        uses: actions/download-artifact@v8
+        with:
+          name: LibreOfficeDev-VSDX-Debian-x86_64
+          path: artifacts/deb
+
+      - name: Install ${{ matrix.format }} packaging tools
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y file pax-utils ${{ matrix.packages }}
+          sudo apt-get install -y ./artifacts/deb/*.deb
+          sudo apt-get clean
+
+      - name: Build ${{ matrix.format }} bundle
+        run: |
+          set -o pipefail
+          bash .github/scripts/package-linux-bundles.sh \
+            artifacts/deb \
+            artifacts/bundles \
+            workdir/linux-bundles \
+            '${{ matrix.format }}' \
+            2>&1 | tee 'linux-bundle-${{ matrix.format }}.log'
+
+      - name: Upload ${{ matrix.format }} bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.path }}
+          retention-days: 14
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Upload ${{ matrix.format }} diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-${{ matrix.format }}-bundle-logs
+          path: |
+            linux-bundle-${{ matrix.format }}.log
+            workdir/linux-bundles/dependencies.txt
+          if-no-files-found: ignore
+          retention-days: 14
