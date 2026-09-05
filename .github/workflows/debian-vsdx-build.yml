@@ -1,0 +1,19 @@
+name: Debian VSDX package
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: debian-vsdx-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    uses: ./.github/workflows/linux-vsdx-reusable.yml
+    with:
+      format: deb
+      artifact_name: LibreOfficeDev-VSDX-Debian-x86_64
+      artifact_path: artifacts/deb/

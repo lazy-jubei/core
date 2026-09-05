@@ -1,0 +1,20 @@
+name: Snap VSDX package
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: snap-vsdx-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    uses: ./.github/workflows/linux-vsdx-reusable.yml
+    with:
+      format: snap
+      artifact_name: LibreOfficeDev-VSDX-Snap-amd64
+      artifact_path: artifacts/bundles/*.snap
+      packaging_tools: snapd squashfs-tools
