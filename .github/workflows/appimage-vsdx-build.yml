@@ -1,0 +1,20 @@
+name: AppImage VSDX package
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: appimage-vsdx-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    uses: ./.github/workflows/linux-vsdx-reusable.yml
+    with:
+      format: appimage
+      artifact_name: LibreOfficeDev-VSDX-AppImage-x86_64
+      artifact_path: artifacts/bundles/LibreOfficeDev-VSDX-x86_64.AppImage
+      packaging_tools: curl
