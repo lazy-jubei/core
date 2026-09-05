@@ -1,0 +1,20 @@
+name: Flatpak VSDX package
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: flatpak-vsdx-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    uses: ./.github/workflows/linux-vsdx-reusable.yml
+    with:
+      format: flatpak
+      artifact_name: LibreOfficeDev-VSDX-Flatpak-x86_64
+      artifact_path: artifacts/bundles/LibreOfficeDev-VSDX-x86_64.flatpak
+      packaging_tools: appstream-util desktop-file-utils flatpak
