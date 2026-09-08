@@ -399,6 +399,7 @@ $(eval $(call gb_Library_add_exception_objects,svxcore,\
     svx/source/svdraw/svdpdf \
     svx/source/svdraw/svdpntv \
     svx/source/svdraw/svdpoev \
+    svx/source/svdraw/svdsmguid \
     svx/source/svdraw/svdsnpv \
     svx/source/svdraw/svdtext \
     svx/source/svdraw/svdtrans \

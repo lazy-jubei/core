@@ -189,6 +189,8 @@ SdrSnapView::SdrSnapView(
     ,mbSlantButShear(false)
     ,mbCrookNoContortion(false)
     ,mbEliminatePolyPoints(false)
+    ,mbSmartGuidesEnabled(false)
+    ,mbSmartGuidesSuppressed(false)
 {
 }
 
