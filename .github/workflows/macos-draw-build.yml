@@ -46,7 +46,9 @@ jobs:
           xcodebuild -version
           xcrun --show-sdk-path
           df -h .
-          brew install autoconf automake libtool pkgconf nasm make cpanminus
+          brew install autoconf automake libtool pkgconf nasm make cpanminus gperf
+          # Prefer Homebrew's gperf over the old version supplied by Xcode.
+          echo "$(brew --prefix gperf)/bin" >> "$GITHUB_PATH"
           cpanm --notest --local-lib-contained "$RUNNER_TEMP/perl5" Archive::Zip
           echo "PERL5LIB=$RUNNER_TEMP/perl5/lib/perl5" >> "$GITHUB_ENV"
 
