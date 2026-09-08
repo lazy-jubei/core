@@ -2,6 +2,8 @@ name: Windows VSDX packages
 
 on:
   workflow_dispatch:
+  push:
+    branches: [draw-smart-guides]
 
 permissions:
   contents: read
@@ -26,7 +28,7 @@ jobs:
         shell: pwsh
         run: git config --global core.autocrlf input
 
-      - name: Check out the VSDX branch
+      - name: Check out the selected branch
         uses: actions/checkout@v6
         with:
           fetch-depth: 1
@@ -449,6 +451,14 @@ jobs:
           export MSYS2_ENV_CONV_EXCL='REAL_CC;REAL_CXX;REAL_BUILD_CC;REAL_BUILD_CXX'
           make MSYSTEM= -j3 CppunitTest_sd_visio_export_tests 2>&1 | tee visio-tests.log
 
+      - name: Run drawing and smart-guide tests
+        shell: msys2 {0}
+        run: |
+          set -euxo pipefail
+          unset MSYSTEM INCLUDE UCRTVersion
+          export MSYS2_ENV_CONV_EXCL='REAL_CC;REAL_CXX;REAL_BUILD_CC;REAL_BUILD_CXX'
+          make MSYSTEM= -j3 CppunitTest_svx_unit 2>&1 | tee drawing-tests.log
+
       - name: Remove build-only helpers from the install tree
         shell: msys2 {0}
         run: |
@@ -540,6 +550,8 @@ jobs:
             templates.log
             build.log
             visio-tests.log
+            drawing-tests.log
+            workdir/CppunitTest/svx_unit.test.log
             config.log
             workdir/CppunitTest/sd_visio_export_tests.test.log
             workdir/CustomTarget/instsetoo_native/install/*.log

@@ -121,6 +121,12 @@ private:
     bool                                    mbSolidDraggingActive : 1;
     bool                                    mbShiftPressed : 1;
 
+    // Smart guide (dynamic alignment / equal size) state. The complete
+    // type is only known to the implementation, so the out-of-line
+    // destructor of SdrDragMethod destroys it.
+    struct ImplSmartGuideState;
+    std::unique_ptr<ImplSmartGuideState>    mpSmartGuideState;
+
 protected:
     // access for derivated classes to maSdrDragEntries
     SAL_DLLPRIVATE void clearSdrDragEntries();
@@ -147,6 +153,13 @@ protected:
     // access for derivated classes for bools
     void setMoveOnly(bool bNew) { mbMoveOnly = bNew; }
     void setSolidDraggingActive(bool bNew) { mbSolidDraggingActive = bNew; }
+
+    // Smart guides (dynamic alignment / equal size). The state is an
+    // opaque implementation detail; the pure geometry is SdrSmartGuide
+    // (svdsmguid.hxx), which is intentionally not part of this header.
+    ImplSmartGuideState& smartGuideState();
+    bool smartGuideActive() const;
+    void smartGuideBegin(bool bResize);
 
     // internal helpers for creation of standard drag entries
     SAL_DLLPRIVATE void createSdrDragEntries_SolidDrag();

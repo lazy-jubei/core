@@ -1,0 +1,125 @@
+name: macOS Draw and VSDX build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [draw-smart-guides]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-draw-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-macos:
+    name: macOS ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 355
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    defaults:
+      run:
+        shell: bash
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      MAKE: gmake
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+
+      - name: Install build prerequisites
+        run: |
+          set -euxo pipefail
+          test "$(uname -m)" = '${{ matrix.arch }}'
+          xcodebuild -version
+          xcrun --show-sdk-path
+          df -h .
+          brew install autoconf automake libtool pkgconf nasm make cpanminus
+          cpanm --notest --local-lib-contained "$RUNNER_TEMP/perl5" Archive::Zip
+          echo "PERL5LIB=$RUNNER_TEMP/perl5/lib/perl5" >> "$GITHUB_ENV"
+
+      - name: Cache downloaded source archives
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/lo-externaltar
+          key: macos-sources-${{ hashFiles('download.lst') }}
+
+      - name: Configure LibreOfficeDev
+        run: |
+          set -euxo pipefail
+          mkdir -p "$RUNNER_TEMP/lo-externaltar"
+          ./autogen.sh \
+            --disable-debug \
+            --without-java \
+            --without-doxygen \
+            --with-lang=en-US \
+            --disable-online-update \
+            --disable-macosx-code-signing \
+            --disable-macosx-package-signing \
+            --with-macosx-version-min-required=11.0 \
+            --with-external-tar="$RUNNER_TEMP/lo-externaltar" \
+            2>&1 | tee autogen.log
+
+      - name: Fetch and build LibreOfficeDev
+        run: |
+          set -euxo pipefail
+          gmake fetch 2>&1 | tee fetch.log
+          gmake -j3 build 2>&1 | tee build.log
+
+      - name: Run drawing and VSDX regression tests
+        run: |
+          set -euxo pipefail
+          gmake -j3 CppunitTest_svx_unit CppunitTest_sd_visio_export_tests \
+            2>&1 | tee regression-tests.log
+
+      - name: Assemble and verify the app bundle
+        run: |
+          set -euxo pipefail
+          gmake -j3 test-install TESTINSTALLDIR="$RUNNER_TEMP/mac-install" \
+            2>&1 | tee install.log
+          shopt -s nullglob
+          apps=("$RUNNER_TEMP/mac-install/"*.app)
+          test "${#apps[@]}" -eq 1
+          "${apps[0]}/Contents/MacOS/soffice" --headless --version
+          mkdir -p artifacts
+          archive="artifacts/LibreOfficeDev-Draw-VSDX-macOS-${{ matrix.arch }}.zip"
+          ditto -c -k --sequesterRsrc --keepParent "${apps[0]}" "$archive"
+          shasum -a 256 "$archive" > "$archive.sha256"
+          printf 'Development build from %s\nNot Developer ID signed or notarized.\n' "$GITHUB_SHA" > artifacts/BUILD-INFO.txt
+
+      - name: Upload the macOS app
+        uses: actions/upload-artifact@v7
+        with:
+          name: LibreOfficeDev-Draw-VSDX-macOS-${{ matrix.arch }}
+          path: artifacts/*
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-${{ matrix.arch }}-build-logs
+          path: |
+            autogen.log
+            config.log
+            fetch.log
+            build.log
+            regression-tests.log
+            install.log
+            workdir/CppunitTest/*.test.log
+          if-no-files-found: ignore
+          retention-days: 14
