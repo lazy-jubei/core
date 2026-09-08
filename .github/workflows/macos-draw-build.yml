@@ -2,6 +2,12 @@ name: macOS Draw and VSDX build
 
 on:
   workflow_dispatch:
+    inputs:
+      architecture:
+        description: Architecture to build
+        type: choice
+        default: both
+        options: [both, arm64, x86_64]
   push:
     branches: [draw-smart-guides]
 
@@ -20,6 +26,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        arch: ${{ fromJSON(inputs.architecture == 'x86_64' && '["x86_64"]' || inputs.architecture == 'arm64' && '["arm64"]' || '["arm64","x86_64"]') }}
         include:
           - runner: macos-15
             arch: arm64
@@ -64,7 +71,13 @@ jobs:
           mkdir -p "$RUNNER_TEMP/lo-externaltar"
           # configure recognizes Homebrew's pkg-config alias, not pkgconf.
           export PKG_CONFIG="$(brew --prefix)/bin/pkg-config"
+          # Intel runs approached the hosted job limit without precompiled headers.
+          extra_config=()
+          if [ '${{ matrix.arch }}' = x86_64 ]; then
+            extra_config+=(--enable-pch=full)
+          fi
           ./autogen.sh \
+            "${extra_config[@]}" \
             --disable-debug \
             --without-java \
             --without-dotnet \
