@@ -667,7 +667,11 @@ gb_AUTOCONF_WRAPPERS = \
 # compiler flags intact while converting the executable itself to a native
 # path for Meson-based external projects. Also provide the MSVC librarian by
 # absolute path so Meson never resolves the MSYS coreutils tool of that name.
+# Meson's compiler/dependency probes do not all use project c_args. Supply
+# the native SDK include and library paths even when the caller unsets INCLUDE.
 gb_MESON_WINDOWS_NATIVE_ENV = \
+	INCLUDE="$(gb_ExternalProject_INCLUDE)" \
+	LIB="$(ILIB)" \
 	AR="$(shell cygpath -m $(dir $(lastword $(filter-out -%,$(CC))))lib.exe)" \
 	CC="$(shell cygpath -m $(filter-out -%,$(CC))) $(filter -%,$(CC))" \
 	CXX="$(shell cygpath -m $(filter-out -%,$(CXX))) $(filter -%,$(CXX))"

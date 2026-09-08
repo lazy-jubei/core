@@ -60,6 +60,8 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p "$RUNNER_TEMP/lo-externaltar"
+          # configure recognizes Homebrew's pkg-config alias, not pkgconf.
+          export PKG_CONFIG="$(brew --prefix)/bin/pkg-config"
           ./autogen.sh \
             --disable-debug \
             --without-java \
