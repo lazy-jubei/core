@@ -23,7 +23,11 @@ $(eval $(call gb_Library_set_include,clucene,\
 	$$(INCLUDE) \
 ))
 
+# Apple Clang's full PCH build leaves CLucene RTTI and vtable symbols unresolved.
+# Keep this library on the non-PCH path while allowing PCH for the rest of the build.
+ifneq ($(OS),MACOSX)
 $(eval $(call gb_Library_set_precompiled_header,clucene,external/clucene/inc/pch/precompiled_clucene))
+endif
 
 $(eval $(call gb_Library_add_defs,clucene,\
     -Dclucene_shared_EXPORTS \
