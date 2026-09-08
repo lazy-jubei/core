@@ -67,6 +67,7 @@ jobs:
           ./autogen.sh \
             --disable-debug \
             --without-java \
+            --without-dotnet \
             --without-doxygen \
             --with-lang=en-US \
             --disable-online-update \
