@@ -67,6 +67,12 @@ DrawView::DrawView(
     ,mnPOCHSmph(0)
 {
     SetCurrentObj(SdrObjKind::Rectangle);
+
+    // smart guides (dynamic alignment / equal size) are a Draw
+    // feature; the shared svx default stays off for other
+    // applications
+    if (pDocSh->GetDoc()->GetDocumentType() == DocumentType::Draw)
+        SetSmartGuidesEnabled(true);
 }
 
 DrawView::~DrawView()

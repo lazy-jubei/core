@@ -33,6 +33,7 @@
 #include <svx/svdmark.hxx>
 #include <svx/svdpagv.hxx>
 #include <svx/svddrgv.hxx>
+#include <svdsmguid.hxx>
 #include <svx/svdograf.hxx>
 #include <svx/strings.hrc>
 #include <svx/dialmgr.hxx>
@@ -634,11 +635,149 @@ void SdrDragMethod::applyCurrentTransformationToPolyPolygon(basegfx::B2DPolyPoly
     rTarget.transform(getCurrentTransformation());
 }
 
+namespace
+{
+/// display signature of the validated smart guide match of one axis;
+/// detects changes of the guide state when the dragged position stays
+/// unchanged (then the overlay must still be rebuilt, e.g. when a
+/// modifier disables snapping)
+struct SmartGuideAxisSig
+{
+    bool bValid { false };
+    SmartGuideKind eKind { SmartGuideKind::None };
+    sal_Int32 nCandidate { -1 };
+    sal_uInt8 nFeature { 0 };
+    double nRefPos { 0.0 };
+
+    static SmartGuideAxisSig make(const SmartGuideMatch& rMatch)
+    {
+        SmartGuideAxisSig aSig;
+        if (rMatch.bValid)
+        {
+            aSig.bValid = true;
+            aSig.eKind = rMatch.eKind;
+            aSig.nCandidate = rMatch.nCandidate;
+            aSig.nFeature = rMatch.nFeature;
+            aSig.nRefPos = rMatch.nRefPos;
+        }
+        return aSig;
+    }
+
+    bool operator==(const SmartGuideAxisSig& rO) const
+    {
+        return bValid == rO.bValid
+            && eKind == rO.eKind
+            && nCandidate == rO.nCandidate
+            && nFeature == rO.nFeature
+            && nRefPos == rO.nRefPos;
+    }
+};
+
+struct SmartGuideSig
+{
+    SmartGuideAxisSig aX;
+    SmartGuideAxisSig aY;
+
+    bool operator==(const SmartGuideSig& rO) const
+    {
+        return aX == rO.aX && aY == rO.aY;
+    }
+};
+}
+
+struct SdrDragMethod::ImplSmartGuideState
+{
+    // candidate rectangles, snapshotted once per drag; independent of
+    // object lifetimes (no live SdrObject pointers)
+    std::vector<tools::Rectangle> aCandidates;
+    // validated per-axis display state; the segments hold the guide
+    // lines of the final, constrained geometry (model units)
+    SmartGuideMatch aMoveX;
+    SmartGuideMatch aMoveY;
+    SmartGuideMatch aResizeX;
+    SmartGuideMatch aResizeY;
+    // signature of the last displayed state, to force an overlay
+    // rebuild when the guide state changes without a position change
+    SmartGuideSig aPrevSig;
+
+    void reset()
+    {
+        aCandidates.clear();
+        aMoveX = SmartGuideMatch();
+        aMoveY = SmartGuideMatch();
+        aResizeX = SmartGuideMatch();
+        aResizeY = SmartGuideMatch();
+        aPrevSig = SmartGuideSig();
+    }
+
+    bool hasGuide() const
+    {
+        return aMoveX.bValid || aMoveY.bValid
+            || aResizeX.bValid || aResizeY.bValid;
+    }
+};
+
+namespace
+{
+/// validates that the match rProposed is still true on the final
+/// (constrained) geometry by re-searching with a tiny tolerance and
+/// requiring the same reference feature; returns the re-searched match
+/// (its segments span the final geometry) or an invalid match
+template <typename TFindMatch>
+SmartGuideMatch validateSmartGuideMatch(
+    const SmartGuideMatch& rProposed,
+    TFindMatch&& xFindMatch)
+{
+    if (!rProposed.bValid)
+        return SmartGuideMatch();
+
+    const SmartGuideMatch aFinal(xFindMatch());
+
+    return aFinal.bValid
+        && aFinal.nCandidate == rProposed.nCandidate
+        && aFinal.nFeature == rProposed.nFeature
+        && std::abs(aFinal.nRefPos - rProposed.nRefPos) < 1e-9
+        ? aFinal
+        : SmartGuideMatch();
+}
+
+/// stores the per-axis display matches in the state and updates the
+/// previous signature; returns true when the displayed guide state
+/// changed (then the caller rebuilds the overlay, if the dragged
+/// position did not change)
+template <typename TState>
+bool smartGuideUpdateDisplay(
+    TState& rState,
+    bool bResize,
+    const SmartGuideMatch& rX,
+    const SmartGuideMatch& rY)
+{
+    if (bResize)
+    {
+        rState.aResizeX = rX;
+        rState.aResizeY = rY;
+    }
+    else
+    {
+        rState.aMoveX = rX;
+        rState.aMoveY = rY;
+    }
+
+    const SmartGuideSig aSig{
+        SmartGuideAxisSig::make(rX),
+        SmartGuideAxisSig::make(rY) };
+    const bool bChanged = !(rState.aPrevSig == aSig);
+    rState.aPrevSig = aSig;
+    return bChanged;
+}
+}
+
 SdrDragMethod::SdrDragMethod(SdrDragView& rNewView)
 :   mrSdrDragView(rNewView),
     mbMoveOnly(false),
     mbSolidDraggingActive(getSdrDragView().IsSolidDragging()),
-    mbShiftPressed(false)
+    mbShiftPressed(false),
+    mpSmartGuideState(std::make_unique<ImplSmartGuideState>())
 {
     if(mbSolidDraggingActive && Application::GetSettings().GetStyleSettings().GetHighContrastMode())
     {
@@ -660,6 +799,89 @@ void SdrDragMethod::Show(bool IsValidSize)
 void SdrDragMethod::Hide()
 {
     getSdrDragView().HideDragObj();
+}
+
+SdrDragMethod::ImplSmartGuideState& SdrDragMethod::smartGuideState()
+{
+    return *mpSmartGuideState;
+}
+
+// whole-shape smart guides are active only when the feature is opted
+// in, snapping is enabled and not disabled by a modifier; the special
+// move-only-top-left mode (DialogEditor) and point/glue-point drags
+// keep their established behavior
+bool SdrDragMethod::smartGuideActive() const
+{
+    return getSdrDragView().IsSmartGuidesEnabled()
+        && !getSdrDragView().IsSmartGuidesSuppressed()
+        && getSdrDragView().IsSnapEnabled()
+        && !DragStat().IsNoSnap()
+        && !getSdrDragView().IsMoveSnapOnlyTopLeft()
+        && !IsDraggingPoints()
+        && !IsDraggingGluePoints();
+}
+
+void SdrDragMethod::smartGuideBegin(bool bResize)
+{
+    ImplSmartGuideState& rState = smartGuideState();
+    rState.reset();
+
+    // the feature must be opted in; a temporarily disabled snapping
+    // (e.g. Ctrl held at drag start) must not block the candidate
+    // collection, so that releasing the modifier during the same drag
+    // can still show guides
+    if (!getSdrDragView().IsSmartGuidesEnabled()
+        || getSdrDragView().IsMoveSnapOnlyTopLeft()
+        || IsDraggingPoints()
+        || IsDraggingGluePoints())
+        return;
+
+    if (bResize)
+    {
+        // resizing a rotated selection would mix the bounding box with
+        // the intrinsic dimensions, which smart guides do not support
+        // (documented limitation); keep the normal drag behavior
+        for (size_t a = 0; a < GetMarkedObjectList().GetMarkCount(); ++a)
+        {
+            const SdrObject* pObj = GetMarkedObjectList().GetMark(a)->GetMarkedSdrObj();
+
+            if (pObj && (pObj->GetRotateAngle().get() != 0
+                         || pObj->GetShearAngle().get() != 0
+                         || pObj->GetShearAngle(true).get() != 0))
+                return;
+        }
+    }
+
+    SdrPageView* pPV = GetDragPV();
+    if (!pPV || !pPV->GetObjList())
+        return;
+
+    // shallow scan of the active object list: it represents the
+    // entered-group context, unentered groups remain units; selected,
+    // invisible objects and objects on invisible layers are excluded
+    // (candidate rectangles only, no live SdrObject pointers)
+    const SdrLayerIDSet& rVisibleLayers = pPV->GetVisibleLayers();
+    SdrObjListIter aIter(pPV->GetObjList(), SdrIterMode::Flat);
+
+    while (aIter.IsMore())
+    {
+        SdrObject* pObj = aIter.Next();
+
+        if (pObj
+            && !getSdrDragView().IsObjMarked(pObj)
+            && pObj->IsVisible()
+            && rVisibleLayers.IsSet(pObj->GetLayer()))
+        {
+            if (bResize && (pObj->GetRotateAngle().get() != 0
+                            || pObj->GetShearAngle().get() != 0
+                            || pObj->GetShearAngle(true).get() != 0))
+                continue;
+
+            const tools::Rectangle& rSnapRect = pObj->GetSnapRect();
+            if (!rSnapRect.IsEmpty())
+                rState.aCandidates.push_back(rSnapRect);
+        }
+    }
 }
 
 basegfx::B2DHomMatrix SdrDragMethod::getCurrentTransformation() const
@@ -810,6 +1032,55 @@ void SdrDragMethod::CreateOverlayGeometry(
 
             insertNewlyCreatedOverlayObjectForSdrDragMethod(
                 std::move(pNewOverlayObject),
+                rObjectContact,
+                rOverlayManager);
+        }
+    }
+
+    // smart guides (dynamic alignment / equal size): independent of the
+    // old full-page drag stripes, so they are created before the early
+    // return for disabled stripes; they are cleaned up with the other
+    // drag overlays by destroyOverlayGeometry()
+    if (bIsGeometrySizeValid && mpSmartGuideState && mpSmartGuideState->hasGuide())
+    {
+        basegfx::BColor aColA(SvtOptionsDrawinglayer::GetStripeColorA().getBColor());
+        basegfx::BColor aColB(SvtOptionsDrawinglayer::GetStripeColorB().getBColor());
+        const double fStripeLength(officecfg::Office::Common::Drawinglayer::StripeLength::get());
+
+        if (Application::GetSettings().GetStyleSettings().GetHighContrastMode())
+        {
+            aColA = aColB = Application::GetSettings().GetStyleSettings().GetHighlightColor().getBColor();
+            aColB.invert();
+        }
+
+        drawinglayer::primitive2d::Primitive2DContainer aGuides;
+
+        auto appendSegments = [&aGuides, &aColA, &aColB, fStripeLength](
+            const SmartGuideMatch& rMatch)
+        {
+            for (const SmartGuideSegment& rSeg : rMatch.aSegments)
+            {
+                basegfx::B2DPolygon aLine;
+                aLine.reserve(2);
+                aLine.append(basegfx::B2DPoint(rSeg.x1, rSeg.y1));
+                aLine.append(basegfx::B2DPoint(rSeg.x2, rSeg.y2));
+                aGuides.push_back(
+                    new drawinglayer::primitive2d::PolygonMarkerPrimitive2D(
+                        std::move(aLine), aColA, aColB, fStripeLength));
+            }
+        };
+
+        appendSegments(mpSmartGuideState->aMoveX);
+        appendSegments(mpSmartGuideState->aMoveY);
+        appendSegments(mpSmartGuideState->aResizeX);
+        appendSegments(mpSmartGuideState->aResizeY);
+
+        if(!aGuides.empty())
+        {
+            insertNewlyCreatedOverlayObjectForSdrDragMethod(
+                std::unique_ptr<sdr::overlay::OverlayObject>(
+                    new sdr::overlay::OverlayPrimitive2DSequenceObject(
+                        std::move(aGuides))),
                 rObjectContact,
                 rOverlayManager);
         }
@@ -1509,6 +1780,7 @@ OUString SdrDragMove::GetSdrDragComment() const
 bool SdrDragMove::BeginSdrDrag()
 {
     DragStat().SetActionRect(GetMarkedRect());
+    smartGuideBegin(false);
     Show();
 
     return true;
@@ -1582,13 +1854,48 @@ void SdrDragMove::MoveSdrDrag(const Point& rNoSnapPnt_)
     }
 
     Point aPnt(aNoSnapPnt.X()+m_nBestXSnap,aNoSnapPnt.Y()+m_nBestYSnap);
+
+    // smart guides: compete with the existing corner snapping per
+    // axis; one offset per axis, never stack the two
+    SmartGuideMatch aSmartX;
+    SmartGuideMatch aSmartY;
+    if (smartGuideActive())
+    {
+        // moving rectangle at the not-yet-snapped position
+        tools::Rectangle aMoving(aSR);
+        aMoving.Move(nMovedx, nMovedy);
+        const Size& rMagnSiz = getSdrDragView().GetSnapMagnetic();
+        aSmartX = SdrSmartGuide::findMoveAxisMatch(
+            aMoving, smartGuideState().aCandidates, true,
+            double(rMagnSiz.Width()));
+        aSmartY = SdrSmartGuide::findMoveAxisMatch(
+            aMoving, smartGuideState().aCandidates, false,
+            double(rMagnSiz.Height()));
+
+        // the smaller displacement wins; on a tie the existing corner
+        // snapping wins
+        if (aSmartX.bValid && (!m_bXSnapped || std::abs(aSmartX.nDelta) < std::abs(m_nBestXSnap)))
+            aPnt.AdjustX(aSmartX.nDelta - m_nBestXSnap);
+        if (aSmartY.bValid && (!m_bYSnapped || std::abs(aSmartY.nDelta) < std::abs(m_nBestYSnap)))
+            aPnt.AdjustY(aSmartY.nDelta - m_nBestYSnap);
+    }
+
     bool bOrtho=getSdrDragView().IsOrtho();
 
     if (bOrtho)
         OrthoDistance8(DragStat().GetStart(),aPnt,getSdrDragView().IsBigOrtho());
 
     if (!DragStat().CheckMinMoved(aNoSnapPnt))
+    {
+        // the drag is not applied yet; do not keep a guide for a
+        // shape that did not move
+        if (smartGuideUpdateDisplay(smartGuideState(), false, SmartGuideMatch(), SmartGuideMatch()))
+        {
+            Hide();
+            Show();
+        }
         return;
+    }
 
     Point aPt1(aPnt);
     tools::Rectangle aLR(getSdrDragView().GetWorkArea());
@@ -1683,6 +1990,30 @@ void SdrDragMove::MoveSdrDrag(const Point& rNoSnapPnt_)
     if (bOrtho)
         OrthoDistance8(DragStat().GetStart(),aPt1,false);
 
+    // smart guides: validate the match on the final (constrained)
+    // position; only a match that is still exact there is displayed,
+    // its segments span the final geometry
+    SmartGuideMatch aDisplayX;
+    SmartGuideMatch aDisplayY;
+    if (aSmartX.bValid || aSmartY.bValid)
+    {
+        tools::Rectangle aFinalRect(aSR);
+        aFinalRect.Move(
+            aPt1.X() - DragStat().GetStart().X(),
+            aPt1.Y() - DragStat().GetStart().Y());
+        aDisplayX = validateSmartGuideMatch(aSmartX, [&] {
+            return SdrSmartGuide::findMoveAxisMatch(
+                aFinalRect, smartGuideState().aCandidates, true, 1e-6);
+        });
+        aDisplayY = validateSmartGuideMatch(aSmartY, [&] {
+            return SdrSmartGuide::findMoveAxisMatch(
+                aFinalRect, smartGuideState().aCandidates, false, 1e-6);
+        });
+    }
+
+    const bool bGuideSigChanged = smartGuideUpdateDisplay(
+        smartGuideState(), false, aDisplayX, aDisplayY);
+
     if (aPt1!=DragStat().GetNow())
     {
         Hide();
@@ -1690,6 +2021,14 @@ void SdrDragMove::MoveSdrDrag(const Point& rNoSnapPnt_)
         tools::Rectangle aAction(GetMarkedRect());
         aAction.Move(DragStat().GetDX(),DragStat().GetDY());
         DragStat().SetActionRect(aAction);
+        Show();
+    }
+    else if (bGuideSigChanged)
+    {
+        // the position did not change but the guide state did (e.g. a
+        // modifier disabled snapping): rebuild the overlay so that
+        // stale guides are removed / new ones are shown
+        Hide();
         Show();
     }
 }
@@ -1825,6 +2164,7 @@ bool SdrDragResize::BeginSdrDrag()
         }
     }
 
+    smartGuideBegin(true);
     Show();
 
     return true;
@@ -1842,9 +2182,81 @@ basegfx::B2DHomMatrix SdrDragResize::getCurrentTransformation() const
 
 void SdrDragResize::MoveSdrDrag(const Point& rNoSnapPnt)
 {
-    Point aPnt(GetSnapPos(rNoSnapPnt));
+    Point aPnt(rNoSnapPnt);
+    const SdrSnap eHandleSnap = SnapPos(aPnt);
     Point aStart(DragStat().GetStart());
     Point aRef(DragStat().GetRef1());
+
+    // smart guides: compete with the handle snapping per axis; one
+    // offset per axis, never stack the two
+    SmartGuideMatch aSmartX;
+    SmartGuideMatch aSmartY;
+    if (smartGuideActive())
+    {
+        // handle at the not-yet-snapped position; the cross factor is
+        // 1.0 here, the constraints are applied below and the guide
+        // is validated against the final factors afterwards
+        const Size& rMagnSiz = getSdrDragView().GetSnapMagnetic();
+        aSmartX = SdrSmartGuide::findResizeAxisMatch(
+            GetMarkedRect(), aStart, aRef, rNoSnapPnt,
+            smartGuideState().aCandidates, true,
+            DragStat().IsHorFixed(), 1.0, double(rMagnSiz.Width()));
+        aSmartY = SdrSmartGuide::findResizeAxisMatch(
+            GetMarkedRect(), aStart, aRef, rNoSnapPnt,
+            smartGuideState().aCandidates, false,
+            DragStat().IsVerFixed(), 1.0, double(rMagnSiz.Height()));
+
+        // aspect-ratio-constrained resize (e.g. Shift): the cross
+        // axis is scaled with the matched axis, so re-rank the
+        // candidates with the consistent proportional cross factor
+        // (the delta itself is unchanged by the re-rank; the
+        // displayed geometry is re-validated below with the final
+        // factors anyway). The condition mirrors the bOrtho
+        // computation below, including the degenerate-handle check.
+        const tools::Long nXDivC(std::abs(aStart.X() - aRef.X()));
+        const tools::Long nYDivC(std::abs(aStart.Y() - aRef.Y()));
+        bool bAspect =
+            getSdrDragView().IsOrtho() || !getSdrDragView().IsResizeAllowed();
+        if (!DragStat().IsHorFixed() && !DragStat().IsVerFixed()
+            && (nXDivC <= 1 || nYDivC <= 1))
+            bAspect = false;
+        if (bAspect && (aSmartX.bValid || aSmartY.bValid))
+        {
+            const double nDivX(double(aStart.X() - aRef.X()));
+            const double nDivY(double(aStart.Y() - aRef.Y()));
+            if (aSmartX.bValid && std::abs(nDivX) >= 1e-9)
+            {
+                const double fFactX(
+                    (double(rNoSnapPnt.X()) + aSmartX.nDelta - double(aRef.X())) / nDivX);
+                aSmartX = SdrSmartGuide::findResizeAxisMatch(
+                    GetMarkedRect(), aStart, aRef, rNoSnapPnt,
+                    smartGuideState().aCandidates, true,
+                    DragStat().IsHorFixed(), fFactX, double(rMagnSiz.Width()));
+            }
+            if (aSmartY.bValid && std::abs(nDivY) >= 1e-9)
+            {
+                const double fFactY(
+                    (double(rNoSnapPnt.Y()) + aSmartY.nDelta - double(aRef.Y())) / nDivY);
+                aSmartY = SdrSmartGuide::findResizeAxisMatch(
+                    GetMarkedRect(), aStart, aRef, rNoSnapPnt,
+                    smartGuideState().aCandidates, false,
+                    DragStat().IsVerFixed(), fFactY, double(rMagnSiz.Height()));
+            }
+        }
+
+        const tools::Long nSnapDx(aPnt.X() - rNoSnapPnt.X());
+        const tools::Long nSnapDy(aPnt.Y() - rNoSnapPnt.Y());
+
+        // the smaller displacement wins; on a tie the existing handle
+        // snapping wins
+        if (aSmartX.bValid && (!(eHandleSnap & SdrSnap::XSNAPPED)
+                              || std::abs(aSmartX.nDelta) < std::abs(nSnapDx)))
+            aPnt.setX(rNoSnapPnt.X() + aSmartX.nDelta);
+        if (aSmartY.bValid && (!(eHandleSnap & SdrSnap::YSNAPPED)
+                              || std::abs(aSmartY.nDelta) < std::abs(nSnapDy)))
+            aPnt.setY(rNoSnapPnt.Y() + aSmartY.nDelta);
+    }
+
     double aMaxFact(0x7FFFFFFF);
     tools::Rectangle aLR(getSdrDragView().GetWorkArea());
     bool bWorkArea=!aLR.IsEmpty();
@@ -2007,22 +2419,83 @@ void SdrDragResize::MoveSdrDrag(const Point& rNoSnapPnt)
     if (bYNeg)
         aNewYFact = -aNewYFact;
 
-    if (DragStat().CheckMinMoved(aPnt))
+    const bool bMinMoved = DragStat().CheckMinMoved(aPnt);
+    const auto isValidSize = [&](double fX, double fY) {
+        const Size aTargetSize(GetMarkedRect().GetSize().scale(
+            fX > 0 ? fX : 1.0, fY > 0 ? fY : 1.0));
+        return getSdrDragView().IsMarkedObjSizeValid(aTargetSize);
+    };
+    const bool bValidSize = isValidSize(aNewXFact, aNewYFact);
+
+    // smart guides: validate the match on the final (constrained)
+    // handle position and factors; only a match that is still exact
+    // there is displayed, its segments span the final geometry
+    SmartGuideMatch aDisplayX;
+    SmartGuideMatch aDisplayY;
+    if (bMinMoved && bValidSize && (aSmartX.bValid || aSmartY.bValid))
+    {
+        // Constraints can change the scale without changing aPnt. Validate
+        // against the effective handle of the actual final transformation.
+        // A fractional effective handle cannot be passed to the integer
+        // geometry helper without introducing a false match.
+        const double fFinalX = aRef.X() + double(aStart.X() - aRef.X()) * aNewXFact;
+        const double fFinalY = aRef.Y() + double(aStart.Y() - aRef.Y()) * aNewYFact;
+        const auto isRepresentable = [](double fValue) {
+            return std::isfinite(fValue)
+                && fValue >= double(SAL_MIN_INT32) && fValue <= double(SAL_MAX_INT32)
+                && std::abs(fValue - std::round(fValue)) < 1e-9;
+        };
+        if (isRepresentable(fFinalX))
+            aDisplayX = validateSmartGuideMatch(aSmartX, [&] {
+                return SdrSmartGuide::findResizeAxisMatch(
+                    GetMarkedRect(), aStart, aRef,
+                    Point(static_cast<tools::Long>(std::round(fFinalX)), aPnt.Y()),
+                    smartGuideState().aCandidates, true,
+                    DragStat().IsHorFixed(), aNewYFact, 0.0);
+            });
+        if (isRepresentable(fFinalY))
+            aDisplayY = validateSmartGuideMatch(aSmartY, [&] {
+                return SdrSmartGuide::findResizeAxisMatch(
+                    GetMarkedRect(), aStart, aRef,
+                    Point(aPnt.X(), static_cast<tools::Long>(std::round(fFinalY))),
+                    smartGuideState().aCandidates, false,
+                    DragStat().IsVerFixed(), aNewXFact, 0.0);
+            });
+    }
+
+    const bool bGuideSigChanged = smartGuideUpdateDisplay(
+        smartGuideState(), true, aDisplayX, aDisplayY);
+
+    if (bMinMoved)
     {
         if ((!DragStat().IsHorFixed() && aPnt.X()!=DragStat().GetNow().X()) ||
-            (!DragStat().IsVerFixed() && aPnt.Y()!=DragStat().GetNow().Y()))
+            (!DragStat().IsVerFixed() && aPnt.Y()!=DragStat().GetNow().Y()) ||
+            (getSdrDragView().IsSmartGuidesEnabled()
+             && (m_aXFact != aNewXFact || m_aYFact != aNewYFact)))
         {
             Hide();
             DragStat().NextMove(aPnt);
             m_aXFact=aNewXFact;
             m_aYFact=aNewYFact;
 
-            aNewXFact = aNewXFact > 0 ? aNewXFact : 1.0;
-            aNewYFact = aNewYFact > 0 ? aNewYFact : 1.0;
-            Size aTargetSize(
-                    GetMarkedRect().GetSize().scale(aNewXFact, aNewYFact));
-            Show(getSdrDragView().IsMarkedObjSizeValid(aTargetSize));
+            Show(bValidSize);
         }
+        else if (bGuideSigChanged)
+        {
+            // the handle position did not change but the guide state
+            // did (e.g. a modifier disabled snapping): rebuild the
+            // overlay so that stale guides are removed / new ones
+            // are shown
+            Hide();
+            Show(isValidSize(m_aXFact, m_aYFact));
+        }
+    }
+    else if (bGuideSigChanged)
+    {
+        // the drag is not applied yet; the display state has been
+        // cleared above, so remove any stale guides
+        Hide();
+        Show(isValidSize(m_aXFact, m_aYFact));
     }
 }
 

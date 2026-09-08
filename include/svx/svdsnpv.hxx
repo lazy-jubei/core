@@ -123,6 +123,8 @@ protected:
     bool mbSlantButShear : 1;          // use slant instead of shear
     bool mbCrookNoContortion : 1;      // no contorsion while Crook
     bool mbEliminatePolyPoints : 1;
+    bool mbSmartGuidesEnabled : 1;     // dynamic alignment / equal-size guides
+    bool mbSmartGuidesSuppressed : 1;  // temporary application snap modifier
 
 protected:
     // #i71538# make constructors of SdrView sub-components protected to avoid incomplete incarnations which may get casted to SdrView
@@ -147,6 +149,8 @@ public:
     void SetSnapMagnetic(const Size& rSiz) { if (rSiz!=maMagnSiz) { maMagnSiz=rSiz; } }
     void SetSnapMagneticPixel(sal_uInt16 nPix) { mnMagnSizPix=nPix; }
     sal_uInt16 GetSnapMagneticPixel() const { return mnMagnSizPix; }
+    // logical (zoom-scaled) magnetic snap distance
+    const Size& GetSnapMagnetic() const { return maMagnSiz; }
 
     // RecalcLogicSnapMagnetic has to be called for every change of OutputDevices and every change of the MapMode!
     void RecalcLogicSnapMagnetic(const OutputDevice& rOut) { SetSnapMagnetic(rOut.PixelToLogic(Size(mnMagnSizPix,mnMagnSizPix))); }
@@ -180,6 +184,17 @@ public:
     // persistent, Default=FALSE.
     void SetMoveSnapOnlyTopLeft(bool bOn) { mbMoveSnapOnlyTopLeft=bOn; }
     bool IsMoveSnapOnlyTopLeft() const { return mbMoveSnapOnlyTopLeft; }
+
+    // Smart guides (dynamic alignment / equal-size) are opt-in, the shared
+    // svx default is off; applications like Draw enable them explicitly.
+    // The flag is only an in-memory state without saved configuration.
+    // Suppresses both the attraction and the guide display; the snap-disable
+    // modifiers are honored by the drag methods through IsSnapEnabled().
+    // Default=FALSE.
+    void SetSmartGuidesEnabled(bool bOn) { mbSmartGuidesEnabled=bOn; }
+    bool IsSmartGuidesEnabled() const { return mbSmartGuidesEnabled; }
+    void SetSmartGuidesSuppressed(bool bSuppress) { mbSmartGuidesSuppressed=bSuppress; }
+    bool IsSmartGuidesSuppressed() const { return mbSmartGuidesSuppressed; }
 
     // #114409#-1 Migrate PageOrigin
     void BegSetPageOrg(const Point& rPnt);

@@ -86,6 +86,7 @@ FuDraw::~FuDraw()
  */
 void FuDraw::DoModifiers(const MouseEvent& rMEvt, bool bSnapModPressed)
 {
+    mpView->SetSmartGuidesSuppressed(bSnapModPressed);
     FrameView* pFrameView = mrViewShell.GetFrameView();
     bool bGridSnap = pFrameView->IsGridSnap();
     bGridSnap = (bSnapModPressed != bGridSnap);
@@ -294,6 +295,7 @@ bool FuDraw::MouseButtonUp(const MouseEvent& rMEvt)
         mpView->SetAngleSnapEnabled( pFrameView->IsAngleSnapEnabled() );
         mpView->SetSnapEnabled(true);
         mpView->SetCreate1stPointAsCenter(false);
+        mpView->SetSmartGuidesSuppressed(false);
         mpView->SetResizeAtCenter(false);
         mpView->SetDragWithCopy(pFrameView->IsDragWithCopy());
         mpView->SetGridSnap(pFrameView->IsGridSnap());
