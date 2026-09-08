@@ -21,17 +21,12 @@ concurrency:
 jobs:
   build-macos:
     name: macOS ${{ matrix.arch }}
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ matrix.arch == 'arm64' && 'macos-15' || 'macos-15-intel' }}
     timeout-minutes: 355
     strategy:
       fail-fast: false
       matrix:
         arch: ${{ fromJSON(inputs.architecture == 'x86_64' && '["x86_64"]' || inputs.architecture == 'arm64' && '["arm64"]' || '["arm64","x86_64"]') }}
-        include:
-          - runner: macos-15
-            arch: arm64
-          - runner: macos-15-intel
-            arch: x86_64
     defaults:
       run:
         shell: bash
