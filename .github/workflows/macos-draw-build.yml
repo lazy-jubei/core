@@ -69,7 +69,8 @@ jobs:
           # Intel runs approached the hosted job limit without precompiled headers.
           extra_config=()
           if [ '${{ matrix.arch }}' = x86_64 ]; then
-            extra_config+=(--enable-pch=full)
+            # Use the system/base header level recommended by configure for Clang.
+            extra_config+=(--enable-pch=base)
           fi
           ./autogen.sh \
             "${extra_config[@]}" \
