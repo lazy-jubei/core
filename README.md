@@ -1,43 +1,20 @@
-## Jubei: Draw smart guides
+## Jubei enhancements
 
-The `libreoffice-26-8-0-jubei` branch carries Draw smart guides and VSDX export
-onto LibreOffice 26.8.0 final. New profiles use the Tabbed interface, Light
-appearance, and neutral toolbar backgrounds without per-application tinting.
+This fork defaults to Light mode with the Tabbed interface.
 
-Smart guides help align shape edges and centers while moving, and match
-widths and heights while resizing. See [implementation status](SMART_GUIDES_STATUS.md),
-[manual checks](SMART_GUIDES_QA.md), and [Jubei source details](JUBEI.md).
+This fork adds some enhancements to LibreOffice, including:
+
+- Smart guides in Draw
+- VSDX export
+- Neutral toolbar colors
 
 ![LibreOffice Draw Save As dialog with Microsoft Visio 2013–365 Drawing (.vsdx) selected](docs/screenshots/save-as-vsdx.png)
 
-The Save As capture shows the VSDX filter available directly in the file-type
-list.
-
-### Running application preview
-
-![Draw running locally with the Tabbed interface, neutral Light appearance, and two shapes ready for a smart-guide demonstration](docs/screenshots/smart-guides-demo.png)
-
-Actual screenshot captured on macOS from the successful smart-guide build at
-`951b3aa3ae9de0925b201f7ecba654f466c1dd72`, with the Tabbed interface, Light
-appearance, and neutral toolbar settings applied to its local profile. This
-shows the demo setup; no live alignment guide is visible in this image.
-It is not a screenshot of the still-building 26.8.0 Jubei binaries.
+Below, the smart guides try to auto-align shapes to different anchor points.
 
 ![Animated Draw smart-guide alignment during a live drag](docs/screenshots/smart-guides.gif)
 
-This animated capture shows the moving rectangle traveling toward the reference
-rectangle and the live alignment guide appearing during the drag.
-
-![Cropped Draw smart-guide alignment during a live drag](docs/screenshots/smart-guides-live.png)
-
-This cropped frame was captured while dragging the medium rectangle toward the
-reference rectangle. The darker, thicker dashed overlay marks matching bottom
-edges while the drag is still in progress.
-
-![Cropped Draw smart-guide alignment with a smaller moving shape](docs/screenshots/smart-guides-small.png)
-
-The smaller-shape capture shows the same live guide at a different object size,
-with the moving shape ghost separated from the original object.
+![Smart-guide alignment with a smaller moving shape](docs/screenshots/smart-guides-small.png)
 
 ## Fork-specific: VSDX export
 
