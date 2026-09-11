@@ -3,7 +3,7 @@ name: Windows VSDX packages
 on:
   workflow_dispatch:
   push:
-    branches: [draw-smart-guides]
+    branches: [libreoffice-26-8-0-jubei]
 
 permissions:
   contents: read
