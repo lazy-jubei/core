@@ -3,6 +3,10 @@ name: macOS Draw and VSDX build
 on:
   workflow_dispatch:
     inputs:
+      source_ref:
+        description: Source commit to build (blank uses the selected branch)
+        type: string
+        default: ''
       architecture:
         description: Architecture to build
         type: choice
@@ -15,7 +19,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: macos-draw-${{ github.ref }}
+  group: macos-draw-${{ github.ref }}-${{ inputs.architecture || 'both' }}
   cancel-in-progress: true
 
 jobs:
@@ -37,6 +41,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.source_ref || github.sha }}
           fetch-depth: 1
           filter: blob:none
           persist-credentials: false
@@ -73,7 +78,7 @@ jobs:
             extra_config+=(--enable-pch=base)
           fi
           ./autogen.sh \
-            "${extra_config[@]}" \
+            ${extra_config[@]+"${extra_config[@]}"} \
             --disable-debug \
             --without-java \
             --without-dotnet \
@@ -111,7 +116,7 @@ jobs:
           archive="artifacts/LibreOfficeDev-Draw-VSDX-macOS-${{ matrix.arch }}.zip"
           ditto -c -k --sequesterRsrc --keepParent "${apps[0]}" "$archive"
           shasum -a 256 "$archive" > "$archive.sha256"
-          printf 'Development build from %s\nNot Developer ID signed or notarized.\n' "$GITHUB_SHA" > artifacts/BUILD-INFO.txt
+          printf 'Development build from %s\nNot Developer ID signed or notarized.\n' "$(git rev-parse HEAD)" > artifacts/BUILD-INFO.txt
 
       - name: Upload the macOS app
         uses: actions/upload-artifact@v7
