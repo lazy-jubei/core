@@ -1,6 +1,6 @@
 # Draw smart guides — implementation status
 
-Branch: `libreoffice-26-8-0-jubei`. The smart-guide changes from
+Branch: `libreoffice-26-8-0-extras`. The smart-guide changes from
 `libreoffice-26-8-0-smart` at `951b3aa3ae9de0925b201f7ecba654f466c1dd72`
 were rebased onto the 26.8.0-based VSDX branch at
 `68ac8fc67b3d0093b3d7f9c42c506c1d9c5e3e53`. The upstream release base is

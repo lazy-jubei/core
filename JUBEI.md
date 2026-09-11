@@ -1,6 +1,6 @@
 # LibreOffice Jubei
 
-Branch: `libreoffice-26-8-0-jubei`
+Branch: `libreoffice-26-8-0-extras`
 
 ## Source lineage
 
