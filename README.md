@@ -20,9 +20,14 @@ It is not a screenshot of the still-building 26.8.0 Jubei binaries.
 
 ![Cropped Draw smart-guide alignment during a live drag](docs/screenshots/smart-guides-live.png)
 
-This cropped frame was captured while dragging the moving rectangle toward the
-reference rectangle. The dashed horizontal alignment overlay spans the gap
-between their matching top edges while the drag is still in progress.
+This cropped frame was captured while dragging the medium rectangle toward the
+reference rectangle. The darker, thicker dashed overlay marks matching bottom
+edges while the drag is still in progress.
+
+![Cropped Draw smart-guide alignment with a smaller moving shape](docs/screenshots/smart-guides-small.png)
+
+The smaller-shape capture shows the same live guide at a different object size,
+with the moving shape ghost separated from the original object.
 
 ## Fork-specific: VSDX export
 
