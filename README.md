@@ -1,3 +1,23 @@
+## Jubei: Draw smart guides
+
+The `libreoffice-26-8-0-jubei` branch carries Draw smart guides and VSDX export
+onto LibreOffice 26.8.0 final. New profiles use the Tabbed interface, Light
+appearance, and neutral toolbar backgrounds without per-application tinting.
+
+Smart guides help align shape edges and centers while moving, and match
+widths and heights while resizing. See [implementation status](SMART_GUIDES_STATUS.md),
+[manual checks](SMART_GUIDES_QA.md), and [Jubei source details](JUBEI.md).
+
+### Running application preview
+
+![Draw running locally with the Tabbed interface, neutral Light appearance, and two shapes ready for a smart-guide demonstration](docs/screenshots/smart-guides-demo.png)
+
+Actual screenshot captured on macOS from the successful smart-guide build at
+`951b3aa3ae9de0925b201f7ecba654f466c1dd72`, with the Tabbed interface, Light
+appearance, and neutral toolbar settings applied to its local profile. This
+shows the demo setup; no live alignment guide is visible in this image.
+It is not a screenshot of the still-building 26.8.0 Jubei binaries.
+
 ## Fork-specific: VSDX export
 
 This repository is a fork of upstream LibreOffice with
