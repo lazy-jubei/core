@@ -1,4 +1,4 @@
-## Jubei enhancements
+## Features
 
 This fork defaults to Light mode with the Tabbed interface.
 
