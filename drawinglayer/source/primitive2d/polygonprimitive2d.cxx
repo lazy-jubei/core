@@ -22,6 +22,8 @@
 #include <drawinglayer/primitive2d/PolyPolygonColorPrimitive2D.hxx>
 #include <drawinglayer/primitive2d/PolygonHairlinePrimitive2D.hxx>
 #include <drawinglayer/primitive2d/PolygonMarkerPrimitive2D.hxx>
+#include <drawinglayer/primitive2d/PolygonStrokePrimitive2D.hxx>
+#include <drawinglayer/primitive2d/PolyPolygonStrokePrimitive2D.hxx>
 #include <drawinglayer/primitive2d/PolygonStrokeArrowPrimitive2D.hxx>
 #include <drawinglayer/primitive2d/PolygonWavePrimitive2D.hxx>
 #include <drawinglayer/primitive2d/pointarrayprimitive2d.hxx>
@@ -211,6 +213,11 @@ void LineRectanglePrimitive2D::get2DDecomposition(
 Primitive2DReference PolygonMarkerPrimitive2D::create2DDecomposition(
     const geometry::ViewInformation2D& rViewInformation) const
 {
+    const basegfx::B2DVector aLineWidthVector(
+        rViewInformation.getInverseObjectToViewTransformation()
+        * basegfx::B2DVector(getDiscreteLineWidth(), 0.0));
+    const double fLogicLineWidth(aLineWidthVector.getLength());
+
     // calculate logic DashLength
     const basegfx::B2DVector aDashVector(rViewInformation.getInverseObjectToViewTransformation()
                                          * basegfx::B2DVector(getDiscreteDashLength(), 0.0));
@@ -229,14 +236,31 @@ Primitive2DReference PolygonMarkerPrimitive2D::create2DDecomposition(
                                          &aDashedPolyPolyB, 2.0 * fLogicDashLength);
 
         Primitive2DContainer aContainer;
-        aContainer.push_back(
-            new PolyPolygonHairlinePrimitive2D(std::move(aDashedPolyPolyA), getRGBColorA()));
-        aContainer.push_back(
-            new PolyPolygonHairlinePrimitive2D(std::move(aDashedPolyPolyB), getRGBColorB()));
+        if (fLogicLineWidth > 0.0)
+        {
+            aContainer.push_back(new PolyPolygonStrokePrimitive2D(
+                std::move(aDashedPolyPolyA),
+                attribute::LineAttribute(getRGBColorA(), fLogicLineWidth)));
+            aContainer.push_back(new PolyPolygonStrokePrimitive2D(
+                std::move(aDashedPolyPolyB),
+                attribute::LineAttribute(getRGBColorB(), fLogicLineWidth)));
+        }
+        else
+        {
+            aContainer.push_back(
+                new PolyPolygonHairlinePrimitive2D(std::move(aDashedPolyPolyA), getRGBColorA()));
+            aContainer.push_back(
+                new PolyPolygonHairlinePrimitive2D(std::move(aDashedPolyPolyB), getRGBColorB()));
+        }
         return new GroupPrimitive2D(std::move(aContainer));
     }
     else
     {
+        if (fLogicLineWidth > 0.0)
+        {
+            return new PolygonStrokePrimitive2D(
+                getB2DPolygon(), attribute::LineAttribute(getRGBColorA(), fLogicLineWidth));
+        }
         return new PolygonHairlinePrimitive2D(getB2DPolygon(), getRGBColorA());
     }
 }
@@ -244,11 +268,13 @@ Primitive2DReference PolygonMarkerPrimitive2D::create2DDecomposition(
 PolygonMarkerPrimitive2D::PolygonMarkerPrimitive2D(basegfx::B2DPolygon aPolygon,
                                                    const basegfx::BColor& rRGBColorA,
                                                    const basegfx::BColor& rRGBColorB,
-                                                   double fDiscreteDashLength)
+                                                   double fDiscreteDashLength,
+                                                   double fDiscreteLineWidth)
     : maPolygon(std::move(aPolygon))
     , maRGBColorA(rRGBColorA)
     , maRGBColorB(rRGBColorB)
     , mfDiscreteDashLength(fDiscreteDashLength)
+    , mfDiscreteLineWidth(fDiscreteLineWidth)
 {
 }
 
@@ -262,7 +288,8 @@ bool PolygonMarkerPrimitive2D::operator==(const BasePrimitive2D& rPrimitive) con
         return (getB2DPolygon() == rCompare.getB2DPolygon()
                 && getRGBColorA() == rCompare.getRGBColorA()
                 && getRGBColorB() == rCompare.getRGBColorB()
-                && getDiscreteDashLength() == rCompare.getDiscreteDashLength());
+                && getDiscreteDashLength() == rCompare.getDiscreteDashLength()
+                && getDiscreteLineWidth() == rCompare.getDiscreteLineWidth());
     }
 
     return false;
@@ -277,9 +304,12 @@ PolygonMarkerPrimitive2D::getB2DRange(const geometry::ViewInformation2D& rViewIn
 
     if (!aRetval.isEmpty())
     {
-        // Calculate view-dependent hairline width
+        // Calculate view-dependent line width. Smart guides use an explicit
+        // pixel width while existing marker users retain their hairline.
         const basegfx::B2DVector aDiscreteSize(
-            rViewInformation.getInverseObjectToViewTransformation() * basegfx::B2DVector(1.0, 0.0));
+            rViewInformation.getInverseObjectToViewTransformation()
+            * basegfx::B2DVector(getDiscreteLineWidth() > 0.0 ? getDiscreteLineWidth() : 1.0,
+                                 0.0));
         const double fDiscreteHalfLineWidth(aDiscreteSize.getLength() * 0.5);
 
         if (fDiscreteHalfLineWidth > 0.0)

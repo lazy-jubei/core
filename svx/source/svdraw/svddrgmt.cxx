@@ -1066,7 +1066,7 @@ void SdrDragMethod::CreateOverlayGeometry(
                 aLine.append(basegfx::B2DPoint(rSeg.x2, rSeg.y2));
                 aGuides.push_back(
                     new drawinglayer::primitive2d::PolygonMarkerPrimitive2D(
-                        std::move(aLine), aColA, aColB, fStripeLength));
+                        std::move(aLine), aColA, aColB, fStripeLength, 2.0));
             }
         };
 
