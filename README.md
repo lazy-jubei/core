@@ -23,6 +23,11 @@ appearance, and neutral toolbar settings applied to its local profile. This
 shows the demo setup; no live alignment guide is visible in this image.
 It is not a screenshot of the still-building 26.8.0 Jubei binaries.
 
+![Animated Draw smart-guide alignment during a live drag](docs/screenshots/smart-guides.gif)
+
+This animated capture shows the moving rectangle traveling toward the reference
+rectangle and the live alignment guide appearing during the drag.
+
 ![Cropped Draw smart-guide alignment during a live drag](docs/screenshots/smart-guides-live.png)
 
 This cropped frame was captured while dragging the medium rectangle toward the
