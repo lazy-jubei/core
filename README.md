@@ -8,6 +8,11 @@ Smart guides help align shape edges and centers while moving, and match
 widths and heights while resizing. See [implementation status](SMART_GUIDES_STATUS.md),
 [manual checks](SMART_GUIDES_QA.md), and [Jubei source details](JUBEI.md).
 
+![LibreOffice Draw Save As dialog with Microsoft Visio 2013–365 Drawing (.vsdx) selected](docs/screenshots/save-as-vsdx.png)
+
+The Save As capture shows the VSDX filter available directly in the file-type
+list.
+
 ### Running application preview
 
 ![Draw running locally with the Tabbed interface, neutral Light appearance, and two shapes ready for a smart-guide demonstration](docs/screenshots/smart-guides-demo.png)
@@ -38,11 +43,6 @@ You can save .vsdx files using the normal "Save As" / "Save a copy" dialog.
 Alternatively in command line:
 
     program\soffice.com --headless --convert-to "vsdx:Visio VSDX" --outdir output input.odg
-
-![LibreOffice Draw Save As dialog with Microsoft Visio 2013–365 Drawing (.vsdx) selected](docs/screenshots/save-as-vsdx.png)
-
-The Save As capture shows the VSDX filter available directly in the file-type
-list.
 
 What the export currently preserves: editable shapes, grouped-shape
 contents flattened to editable leaves, fills and transparency,
