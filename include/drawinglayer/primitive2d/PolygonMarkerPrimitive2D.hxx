@@ -51,6 +51,9 @@ private:
     /// the dash distance in 'pixels'
     double mfDiscreteDashLength;
 
+    /// optional stroke width in 'pixels'; zero keeps the original hairline
+    double mfDiscreteLineWidth;
+
     /// decomposition is view-dependent, remember last InverseObjectToViewTransformation
     basegfx::B2DHomMatrix maLastInverseObjectToViewTransformation;
 
@@ -61,13 +64,15 @@ private:
 public:
     /// constructor
     PolygonMarkerPrimitive2D(basegfx::B2DPolygon aPolygon, const basegfx::BColor& rRGBColorA,
-                             const basegfx::BColor& rRGBColorB, double fDiscreteDashLength);
+                             const basegfx::BColor& rRGBColorB, double fDiscreteDashLength,
+                             double fDiscreteLineWidth = 0.0);
 
     /// data read access
     const basegfx::B2DPolygon& getB2DPolygon() const { return maPolygon; }
     const basegfx::BColor& getRGBColorA() const { return maRGBColorA; }
     const basegfx::BColor& getRGBColorB() const { return maRGBColorB; }
     double getDiscreteDashLength() const { return mfDiscreteDashLength; }
+    double getDiscreteLineWidth() const { return mfDiscreteLineWidth; }
 
     /// compare operator
     virtual bool operator==(const BasePrimitive2D& rPrimitive) const override;
