@@ -18,6 +18,7 @@ present in the 26.8.0 VSDX base and were not duplicated.
 
 - Tabbed interface in Writer, Calc, Impress and Draw.
 - Light application appearance, independently of the operating system theme.
+- Neutral tabbed-toolbar background, without per-application color tinting.
 - Existing saved profile settings remain user-controlled and take precedence.
 - Smart guides and VSDX export are retained.
 
