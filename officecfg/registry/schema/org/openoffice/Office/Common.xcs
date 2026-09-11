@@ -5244,7 +5244,7 @@
           <desc>Specifies which transparency at which module and dialog color are merged for
           the notebookbar. Use 0 for full module and 255 for full dialog.</desc>
         </info>
-        <value>150</value>
+        <value>255</value>
       </prop>
       <prop oor:name="SymbolStyle" oor:type="xs:string" oor:nillable="false">
         <!-- UIHints: Tools  Options General View -->
