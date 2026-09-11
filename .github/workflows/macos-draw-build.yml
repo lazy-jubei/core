@@ -9,7 +9,7 @@ on:
         default: both
         options: [both, arm64, x86_64]
   push:
-    branches: [draw-smart-guides]
+    branches: [libreoffice-26-8-0-jubei]
 
 permissions:
   contents: read

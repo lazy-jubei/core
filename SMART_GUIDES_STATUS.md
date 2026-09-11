@@ -1,7 +1,22 @@
 # Draw smart guides — implementation status
 
-Branch: `draw-smart-guides`, based on `vsdx-export` at `93fa85b4d`.
-Existing VSDX source changes are preserved. GitHub Actions builds this branch on push for Windows x64, macOS Apple Silicon and macOS Intel; manual dispatch remains available. macOS artifacts are development app bundles without Developer ID signing or notarization.
+Branch: `libreoffice-26-8-0-jubei`. The smart-guide changes from
+`libreoffice-26-8-0-smart` at `951b3aa3ae9de0925b201f7ecba654f466c1dd72`
+were rebased onto the 26.8.0-based VSDX branch at
+`68ac8fc67b3d0093b3d7f9c42c506c1d9c5e3e53`. The upstream release base is
+`libreoffice-26.8.0.3` (LibreOffice 26.8.0 final).
+
+Existing VSDX source changes are preserved. Windows and macOS push builds
+now target the Jubei branch; manual dispatch remains available. macOS app
+bundles are development builds without Developer ID signing or notarization.
+
+Jubei defaults to the Tabbed interface in Writer, Calc, Impress and Draw,
+and Light application appearance. These are defaults for new profiles;
+existing saved user choices continue to take precedence.
+
+The verification results below were recorded on the original smart-guide
+branch. They have not been rerun against this rebased branch. See
+`JUBEI.md` for the rebase validation and remaining build checks.
 
 ## Implemented
 
