@@ -52,7 +52,10 @@ jobs:
           sudo apt-get update
           sudo apt-get build-dep -y libreoffice
           read -r -a packaging_tools <<< "$PACKAGING_TOOLS"
-          sudo apt-get install -y ccache fakeroot file pax-utils "${packaging_tools[@]}"
+          # ttf-mscorefonts-installer downloads the Microsoft core fonts
+          # (Arial, Times New Roman, Verdana, ...) from SourceForge; the
+          # postinst accepts the EULA non-interactively.
+          sudo apt-get install -y ccache fakeroot file pax-utils ttf-mscorefonts-installer "${packaging_tools[@]}"
           sudo apt-get clean
 
       - name: Cache external sources
@@ -139,6 +142,34 @@ jobs:
           cp README.md artifacts/deb/README-VSDX-FORK.md
           find artifacts/deb -maxdepth 1 -type f -name '*.deb' -print0 | sort -z | xargs -0 -n1 dpkg-deb --info
           sha256sum artifacts/deb/*.deb
+
+      - name: Bundle the Microsoft core fonts into the Debian packages
+        run: |
+          set -euxo pipefail
+          fonts_dir=/usr/share/fonts/truetype/msttcorefonts
+          test -n "$(find "$fonts_dir" -maxdepth 1 -name '*.ttf' -print -quit)"
+          # Patch the package that carries the LO home (share/ lives there);
+          # the AppImage/Flatpak/snap bundles are extracted from these
+          # debs, so they inherit the fonts as well.
+          main_deb=''
+          for candidate in artifacts/deb/*.deb; do
+            if dpkg-deb -c "$candidate" | grep -q 'program/soffice'; then
+              main_deb="$candidate"
+              break
+            fi
+          done
+          test -n "$main_deb"
+          patch_root="$(mktemp -d)"
+          dpkg-deb --extract "$main_deb" "$patch_root"
+          lo_dir="$(dirname "$(dirname "$(find "$patch_root" -type f -path '*/program/soffice' -print -quit)")")"
+          mkdir -p "$lo_dir/share/fonts/truetype/msttcorefonts"
+          cp -f "$fonts_dir"/*.ttf "$lo_dir/share/fonts/truetype/msttcorefonts/"
+          patched_deb="$(mktemp --suffix=.deb)"
+          dpkg-deb --build --root-owner-group "$patch_root" "$patched_deb"
+          mv -f "$patched_deb" "$main_deb"
+          rm -rf "$patch_root"
+          dpkg-deb -c "$main_deb" | grep -c msttcorefonts
+          sha256sum "$main_deb"
 
       - name: Build ${{ inputs.format }} bundle
         if: inputs.format != 'deb'
