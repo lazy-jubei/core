@@ -1,4 +1,4 @@
-## Features
+## Libre Office Extras
 
 This fork defaults to Light mode with the Tabbed interface.
 
@@ -16,10 +16,7 @@ Below, the smart guides try to auto-align shapes to different anchor points.
 
 ![Smart-guide alignment with a smaller moving shape](docs/screenshots/smart-guides-small.png)
 
-## Fork-specific: VSDX export
-
-This repository is a fork of upstream LibreOffice with
-support for exporting Microsoft Visio VSDX files to LibreOffice Draw. 
+## VSDX export
 
 You can save .vsdx files using the normal "Save As" / "Save a copy" dialog.
 Alternatively in command line:
@@ -32,8 +29,7 @@ formatted and colored text, paragraph spacing, superscript and
 subscript, routed paths, Bezier geometry, arrowheads, and line
 orientation.
 
-Known limitations: the filter is experimental, so keep the original
-files; shape groups are flattened to individual shapes; and connector
+Shape groups are flattened to individual shapes; and connector
 glue/topology is not retained, even though the routed paths are
 preserved visually.
 
