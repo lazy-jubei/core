@@ -133,8 +133,11 @@ jobs:
                 echo "$workflow_file: run $run_id is $status"
                 pending=1
               elif [[ "$conclusion" != success ]]; then
-                echo "$workflow_file: run $run_id finished with $conclusion" >&2
-                exit 1
+                # A failed build may be a transient runner problem; keep waiting
+                # so a re-run of that build (same commit) can still produce the
+                # release instead of failing the whole publish.
+                echo "$workflow_file: run $run_id finished with $conclusion; waiting for a re-run"
+                pending=1
               else
                 echo "$workflow_file: run $run_id succeeded"
                 echo "$output_key=$run_id" >> "$GITHUB_ENV"
