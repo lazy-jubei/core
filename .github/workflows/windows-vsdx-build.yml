@@ -485,6 +485,92 @@ jobs:
             throw "Packaged soffice.com failed with exit code $LASTEXITCODE"
           }
 
+      - name: Bundle the Microsoft Aptos fonts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $aptosDirectory = Join-Path $env:RUNNER_TEMP 'aptos-fonts'
+          New-Item -ItemType Directory -Path $aptosDirectory -Force | Out-Null
+          Invoke-WebRequest -Uri 'https://download.microsoft.com/download/8/6/0/860a94fa-7feb-44ef-ac79-c072d9113d69/Microsoft%20Aptos%20Fonts.zip' -OutFile (Join-Path $aptosDirectory 'aptos.zip') -MaximumRetryCount 3
+          Expand-Archive -LiteralPath (Join-Path $aptosDirectory 'aptos.zip') -DestinationPath $aptosDirectory -Force
+          if (-not (Test-Path -LiteralPath (Join-Path $aptosDirectory 'Aptos.ttf'))) {
+            throw 'The Microsoft Aptos fonts download did not contain Aptos.ttf.'
+          }
+          # LibreOffice on Windows scans this directory's top-level files
+          # only, so the fonts must sit flat in it.
+          $fontDirectory = Join-Path $env:GITHUB_WORKSPACE 'instdir\share\fonts\truetype'
+          New-Item -ItemType Directory -Path $fontDirectory -Force | Out-Null
+          Copy-Item -Path (Join-Path $aptosDirectory '*.ttf') -Destination $fontDirectory -Force
+          Copy-Item -Path (Join-Path $aptosDirectory '*.rtf') -Destination $fontDirectory -Force
+          $fontCount = @(Get-ChildItem -Path $fontDirectory -Filter 'Aptos*.ttf' -File).Count
+          if ($fontCount -lt 20) {
+            throw "Expected at least 20 Aptos font files in $fontDirectory, found $fontCount."
+          }
+          # The MSI file set comes from the package file lists that gbuild
+          # wrote during the build, and the installer re-reads those text
+          # files at install time, so the regenerated MSI will include the
+          # fonts once they are listed here.
+          $filelist = Join-Path $env:GITHUB_WORKSPACE 'workdir\Package\extras_fonts.filelist'
+          if (-not (Test-Path -LiteralPath $filelist)) {
+            throw "Package file list not found: $filelist"
+          }
+          $firstLine = (Get-Content -LiteralPath $filelist -TotalCount 1)
+          $marker = '/share/fonts/truetype/'
+          $markerIndex = $firstLine.IndexOf($marker)
+          if ($markerIndex -lt 0) {
+            throw "Could not derive the instdir prefix from $filelist: $firstLine"
+          }
+          $instRoot = $firstLine.Substring(0, $markerIndex)
+          foreach ($font in (Get-ChildItem -Path $aptosDirectory -File |
+            Where-Object { $_.Name -like '*.ttf' -or $_.Name -like '*.rtf' })) {
+            Add-Content -LiteralPath $filelist -Value "$instRoot$marker$($font.Name)"
+          }
+          $listed = @(Get-Content -LiteralPath $filelist | Where-Object { $_ -like '*Aptos*' }).Count
+          if ($listed -lt 20) {
+            throw "Expected at least 20 Aptos entries in $filelist, found $listed."
+          }
+
+      - name: Regenerate the Windows installer with the bundled fonts
+        shell: msys2 {0}
+        run: |
+          set -euxo pipefail
+          unset MSYSTEM INCLUDE UCRTVersion
+          # 'make install' re-runs ooinstall, which reads the package
+          # file lists (now extended with the Aptos fonts) at install
+          # time, so the regenerated MSI contains the fonts.
+          make MSYSTEM= install 2>&1 | tee install.log
+          find workdir/installation -type f -name '*.msi'
+
+      - name: Verify the MSI contains the bundled fonts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msi = Get-ChildItem -Path (Join-Path $env:GITHUB_WORKSPACE 'workdir\installation') -Filter '*.msi' -File -Recurse |
+            Where-Object { $_.Name -notlike '*_sdk.msi' } | Select-Object -First 1
+          if (-not $msi) {
+            throw 'No main (non-SDK) MSI found in workdir\installation.'
+          }
+          # Query the File table through the Windows Installer COM API so a
+          # stale or failed regeneration (MSI without the fonts) fails the build.
+          $installer = New-Object -ComObject WindowsInstaller.Installer
+          $db = $installer.OpenDatabase($msi.FullName, 0)
+          $view = $db.OpenView('SELECT File FROM File')
+          $view.Execute()
+          $count = 0
+          $safety = 0
+          while ($true) {
+            $rc = $view.Fetch(1)
+            $safety++
+            if (($rc -ne 0) -or ($safety -gt 200000)) { break }
+            if ($view.StringData(1) -like 'Aptos*') { $count++ }
+          }
+          $view.Close()
+          $db.Close()
+          Write-Output "Aptos files in the main MSI: $count"
+          if ($count -lt 20) {
+            throw "Expected at least 20 Aptos files in the main MSI, found $count."
+          }
+
       - name: Collect the Windows installer
         shell: pwsh
         run: |
@@ -551,6 +637,7 @@ jobs:
             build.log
             visio-tests.log
             drawing-tests.log
+            install.log
             workdir/CppunitTest/svx_unit.test.log
             config.log
             workdir/CppunitTest/sd_visio_export_tests.test.log

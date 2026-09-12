@@ -58,6 +58,17 @@ jobs:
           sudo apt-get install -y ccache fakeroot file pax-utils ttf-mscorefonts-installer "${packaging_tools[@]}"
           sudo apt-get clean
 
+      - name: Download Microsoft Aptos fonts
+        run: |
+          set -euxo pipefail
+          aptos_dir="$RUNNER_TEMP/aptos-fonts"
+          mkdir -p "$aptos_dir"
+          curl --fail --location --retry 3 \
+            'https://download.microsoft.com/download/8/6/0/860a94fa-7feb-44ef-ac79-c072d9113d69/Microsoft%20Aptos%20Fonts.zip' \
+            --output "$aptos_dir/aptos.zip"
+          unzip -o -q "$aptos_dir/aptos.zip" -d "$aptos_dir"
+          test -n "$(find "$aptos_dir" -maxdepth 1 -name 'Aptos.ttf' -print -quit)"
+
       - name: Cache external sources
         uses: actions/cache@v5
         with:
@@ -143,11 +154,13 @@ jobs:
           find artifacts/deb -maxdepth 1 -type f -name '*.deb' -print0 | sort -z | xargs -0 -n1 dpkg-deb --info
           sha256sum artifacts/deb/*.deb
 
-      - name: Bundle the Microsoft core fonts into the Debian packages
+      - name: Bundle the Microsoft fonts into the Debian packages
         run: |
           set -euxo pipefail
           fonts_dir=/usr/share/fonts/truetype/msttcorefonts
+          aptos_dir="$RUNNER_TEMP/aptos-fonts"
           test -n "$(find "$fonts_dir" -maxdepth 1 -name '*.ttf' -print -quit)"
+          test -n "$(find "$aptos_dir" -maxdepth 1 -name 'Aptos.ttf' -print -quit)"
           # Patch the package that carries the LO home (share/ lives there);
           # the AppImage/Flatpak/snap bundles are extracted from these
           # debs, so they inherit the fonts as well.
@@ -164,11 +177,15 @@ jobs:
           lo_dir="$(dirname "$(dirname "$(find "$patch_root" -type f -path '*/program/soffice' -print -quit)")")"
           mkdir -p "$lo_dir/share/fonts/truetype/msttcorefonts"
           cp -f "$fonts_dir"/*.ttf "$lo_dir/share/fonts/truetype/msttcorefonts/"
+          # Aptos ships as a single flat directory, so keep it flat: LO
+          # on every platform scans share/fonts/truetype top-level files.
+          cp -f "$aptos_dir"/*.ttf "$aptos_dir"/*.rtf "$lo_dir/share/fonts/truetype/"
           patched_deb="$(mktemp --suffix=.deb)"
           dpkg-deb --build --root-owner-group "$patch_root" "$patched_deb"
           mv -f "$patched_deb" "$main_deb"
           rm -rf "$patch_root"
-          dpkg-deb -c "$main_deb" | grep -c msttcorefonts
+          test "$(dpkg-deb -c "$main_deb" | grep -c msttcorefonts)" -ge 8
+          test "$(dpkg-deb -c "$main_deb" | grep -cE 'Aptos|Microsoft Aptos Fonts EULA')" -ge 20
           sha256sum "$main_deb"
 
       - name: Build ${{ inputs.format }} bundle
