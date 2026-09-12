@@ -2,6 +2,8 @@ name: Flatpak VSDX package
 
 on:
   workflow_dispatch:
+  push:
+    branches: [libreoffice-26-8-0-extras]
 
 permissions:
   contents: read
