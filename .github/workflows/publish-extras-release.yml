@@ -2,6 +2,7 @@ name: Publish Extras release
 
 on:
   push:
+    branches: [libreoffice-26-8-0-extras]
     tags:
       - 'libreoffice-*-extras.*'
   workflow_dispatch:
@@ -16,7 +17,10 @@ permissions:
   contents: write
 
 concurrency:
-  group: publish-extras-release-${{ inputs.tag_name || github.ref_name }}
+  # Keyed by commit so the branch-triggered run and the run re-triggered by
+  # the synthesized tag push (same commit) serialize instead of duplicating
+  # work; the tag-triggered run bails out once the release exists.
+  group: publish-extras-release-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
@@ -40,17 +44,48 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          tag_name='${{ inputs.tag_name || github.ref_name }}'
-          source_sha="$(git rev-list -n 1 "refs/tags/$tag_name")"
+          if [[ -n "${{ inputs.tag_name }}" ]]; then
+            tag_name="${{ inputs.tag_name }}"
+            source_sha="$(git rev-list -n 1 "refs/tags/$tag_name")"
+          elif [[ "${{ github.ref_type }}" == "tag" ]]; then
+            tag_name="${{ github.ref_name }}"
+            source_sha="$(git rev-list -n 1 "refs/tags/$tag_name")"
+          else
+            # Branch push: synthesize a per-commit tag so every change to the
+            # branch gets its own verifiable release.
+            branch="${{ github.ref_name }}"
+            source_sha="$(git rev-parse HEAD)"
+            version_part="${branch#libreoffice-}"
+            version_part="${version_part%-extras}"
+            version="$(tr '-' '.' <<< "$version_part")"
+            tag_name="libreoffice-${version}-extras.g${source_sha:0:8}"
+            if [[ -z "$(git ls-remote --tags origin "$tag_name")" ]]; then
+              git tag "$tag_name" "$source_sha"
+              git push origin "refs/tags/$tag_name"
+            fi
+          fi
           if [[ -z "$source_sha" ]]; then
             echo "Could not resolve source commit for $tag_name" >&2
             exit 1
+          fi
+          # Pushing the synthesized tag re-triggers this workflow on the same
+          # commit. If the release already exists, the branch-triggered run
+          # handled it, so skip the duplicate; otherwise fall through and
+          # publish (this covers a failed branch-triggered run).
+          synthesized_re='-extras\.g[0-9a-f]{8,40}$'
+          if [[ "${{ github.ref_type }}" == "tag" && "$tag_name" =~ $synthesized_re ]]; then
+            if gh release view "$tag_name" --repo "$REPOSITORY" >/dev/null 2>&1; then
+              echo "skip=1" >> "$GITHUB_OUTPUT"
+              echo "Release for $tag_name already exists; skipping the duplicate tag-triggered run."
+              exit 0
+            fi
           fi
           echo "tag_name=$tag_name" >> "$GITHUB_OUTPUT"
           echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
           echo "Publishing $tag_name from $source_sha"
 
       - name: Wait for all platform builds
+        if: steps.source.outputs.skip != '1'
         shell: bash
         env:
           TAG_NAME: ${{ steps.source.outputs.tag_name }}
@@ -116,6 +151,7 @@ jobs:
           done
 
       - name: Download end-user build artifacts
+        if: steps.source.outputs.skip != '1'
         shell: bash
         run: |
           set -euo pipefail
@@ -130,6 +166,7 @@ jobs:
           gh run download "$SNAP_RUN_ID" --repo "$REPOSITORY" --name LibreOfficeDev-VSDX-Snap-amd64 --dir downloads/snap
 
       - name: Assemble the nine release assets
+        if: steps.source.outputs.skip != '1'
         shell: bash
         env:
           SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
@@ -156,12 +193,13 @@ jobs:
           copy_one LibreOfficeDev-VSDX-x86_64.flatpak downloads/flatpak -name '*.flatpak'
           copy_one libreoffice-vsdx_0+git.${SOURCE_SHA:0:14}_amd64.snap downloads/snap -name '*.snap'
 
-          windows_msi="$(find downloads/windows-msi -type f -name 'LibreOfficeDev_*_Win_x86-64.msi' ! -name '*_sdk.msi' -print -quit)"
+          windows_msi="$(find downloads/windows-msi -type f -name '*Win_x86-64.msi' ! -name '*_sdk.msi' -print -quit)"
           if [[ -z "$windows_msi" ]]; then
             echo 'Missing the full Windows x64 MSI installer.' >&2
             exit 1
           fi
           cp "$windows_msi" release-assets/
+          msi_name="$(basename "$windows_msi")"
 
           find downloads/debian -type f -name '*.deb' -exec cp {} debian-bundle/ \;
           test -n "$(find debian-bundle -type f -name '*.deb' -print -quit)"
@@ -177,7 +215,7 @@ jobs:
           (cd release-assets && sha256sum \
             LibreOfficeDev-Draw-VSDX-macOS-arm64.zip \
             LibreOfficeDev-Draw-VSDX-macOS-x86_64.zip \
-            LibreOfficeDev_26.8.0.3_Win_x86-64.msi \
+            "$msi_name" \
             LibreOfficeDev-VSDX-Windows-x64.zip \
             LibreOfficeDev-VSDX-Debian-amd64.tar.xz \
             LibreOfficeDev-VSDX-x86_64.AppImage \
@@ -187,6 +225,7 @@ jobs:
 
       - name: Create or update the release
         id: release
+        if: steps.source.outputs.skip != '1'
         shell: bash
         env:
           TAG_NAME: ${{ steps.source.outputs.tag_name }}
@@ -209,8 +248,6 @@ jobs:
             gh release create "$TAG_NAME" \
               --repo "$REPOSITORY" \
               --verify-tag \
-              --draft \
-              --prerelease \
               --title "$title" \
               --notes-file "$notes"
           fi
@@ -228,8 +265,6 @@ jobs:
 
           gh release edit "$TAG_NAME" \
             --repo "$REPOSITORY" \
-            --draft=false \
-            --prerelease \
             --title "$title" \
             --notes-file "$notes"
           gh release view "$TAG_NAME" --repo "$REPOSITORY" --json url,isDraft,isPrerelease
