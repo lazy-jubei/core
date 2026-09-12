@@ -1,0 +1,235 @@
+name: Publish Extras release
+
+on:
+  push:
+    tags:
+      - 'libreoffice-*-extras.*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: Existing extras tag whose successful build artifacts should be published
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: publish-extras-release-${{ inputs.tag_name || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPOSITORY: ${{ github.repository }}
+      BUILD_BRANCH: libreoffice-26-8-0-extras
+
+    steps:
+      - name: Check out the tagged source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag_name || github.ref }}
+          fetch-depth: 0
+
+      - name: Resolve release source
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag_name='${{ inputs.tag_name || github.ref_name }}'
+          source_sha="$(git rev-list -n 1 "refs/tags/$tag_name")"
+          if [[ -z "$source_sha" ]]; then
+            echo "Could not resolve source commit for $tag_name" >&2
+            exit 1
+          fi
+          echo "tag_name=$tag_name" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+          echo "Publishing $tag_name from $source_sha"
+
+      - name: Wait for all platform builds
+        shell: bash
+        env:
+          TAG_NAME: ${{ steps.source.outputs.tag_name }}
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+
+          # The build workflows run from the extras branch. A tag is published
+          # after that branch push, so wait for the six matching successful runs
+          # rather than guessing which run produced an artifact.
+          workflows=(
+            'macos-draw-build.yml:MACOS_RUN_ID'
+            'windows-vsdx-build.yml:WINDOWS_RUN_ID'
+            'debian-vsdx-build.yml:DEBIAN_RUN_ID'
+            'appimage-vsdx-build.yml:APPIMAGE_RUN_ID'
+            'flatpak-vsdx-build.yml:FLATPAK_RUN_ID'
+            'snap-vsdx-build.yml:SNAP_RUN_ID'
+          )
+
+          find_run() {
+            local workflow_file="$1"
+            gh run list \
+              --repo "$REPOSITORY" \
+              --workflow "$workflow_file" \
+              --branch "$BUILD_BRANCH" \
+              --commit "$SOURCE_SHA" \
+              --limit 20 \
+              --json databaseId,status,conclusion \
+              --jq 'sort_by(.databaseId) | last // empty | [.databaseId,.status,.conclusion] | @tsv'
+          }
+
+          for attempt in $(seq 1 360); do
+            pending=0
+            for spec in "${workflows[@]}"; do
+              workflow_file="${spec%%:*}"
+              output_key="${spec##*:}"
+              run_info="$(find_run "$workflow_file")"
+              if [[ -z "$run_info" ]]; then
+                echo "$workflow_file: waiting for a run at $SOURCE_SHA"
+                pending=1
+                continue
+              fi
+              IFS=$'\t' read -r run_id status conclusion <<< "$run_info"
+              if [[ "$status" != completed ]]; then
+                echo "$workflow_file: run $run_id is $status"
+                pending=1
+              elif [[ "$conclusion" != success ]]; then
+                echo "$workflow_file: run $run_id finished with $conclusion" >&2
+                exit 1
+              else
+                echo "$workflow_file: run $run_id succeeded"
+                echo "$output_key=$run_id" >> "$GITHUB_ENV"
+              fi
+            done
+            if [[ "$pending" -eq 0 ]]; then
+              break
+            fi
+            if [[ "$attempt" -eq 360 ]]; then
+              echo 'Timed out waiting for all platform builds.' >&2
+              exit 1
+            fi
+            sleep 60
+          done
+
+      - name: Download end-user build artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p downloads/{macos-arm64,macos-x86_64,windows-portable,windows-msi,debian,appimage,flatpak,snap}
+          gh run download "$MACOS_RUN_ID" --repo "$REPOSITORY" --name LibreOfficeDev-Draw-VSDX-macOS-arm64 --dir downloads/macos-arm64
+          gh run download "$MACOS_RUN_ID" --repo "$REPOSITORY" --name LibreOfficeDev-Draw-VSDX-macOS-x86_64 --dir downloads/macos-x86_64
+          gh run download "$WINDOWS_RUN_ID" --repo "$REPOSITORY" --name LibreOfficeDev-VSDX-Windows-x64 --dir downloads/windows-portable
+          gh run download "$WINDOWS_RUN_ID" --repo "$REPOSITORY" --name LibreOfficeDev-VSDX-Windows-x64-MSI --dir downloads/windows-msi
+          gh run download "$DEBIAN_RUN_ID" --repo "$REPOSITORY" --name LibreOfficeDev-VSDX-Debian-x86_64 --dir downloads/debian
+          gh run download "$APPIMAGE_RUN_ID" --repo "$REPOSITORY" --name LibreOfficeDev-VSDX-AppImage-x86_64 --dir downloads/appimage
+          gh run download "$FLATPAK_RUN_ID" --repo "$REPOSITORY" --name LibreOfficeDev-VSDX-Flatpak-x86_64 --dir downloads/flatpak
+          gh run download "$SNAP_RUN_ID" --repo "$REPOSITORY" --name LibreOfficeDev-VSDX-Snap-amd64 --dir downloads/snap
+
+      - name: Assemble the nine release assets
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets debian-bundle
+
+          copy_one() {
+            local destination="$1"
+            shift
+            local source
+            source="$(find "$@" -type f -print -quit)"
+            if [[ -z "$source" ]]; then
+              echo "Missing release file for $destination" >&2
+              exit 1
+            fi
+            cp "$source" "release-assets/$destination"
+          }
+
+          copy_one LibreOfficeDev-Draw-VSDX-macOS-arm64.zip downloads/macos-arm64 -name '*.zip'
+          copy_one LibreOfficeDev-Draw-VSDX-macOS-x86_64.zip downloads/macos-x86_64 -name '*.zip'
+          copy_one LibreOfficeDev-VSDX-Windows-x64.zip downloads/windows-portable -name '*.zip'
+          copy_one LibreOfficeDev-VSDX-x86_64.AppImage downloads/appimage -name '*.AppImage'
+          copy_one LibreOfficeDev-VSDX-x86_64.flatpak downloads/flatpak -name '*.flatpak'
+          copy_one libreoffice-vsdx_0+git.${SOURCE_SHA:0:14}_amd64.snap downloads/snap -name '*.snap'
+
+          windows_msi="$(find downloads/windows-msi -type f -name 'LibreOfficeDev_*_Win_x86-64.msi' ! -name '*_sdk.msi' -print -quit)"
+          if [[ -z "$windows_msi" ]]; then
+            echo 'Missing the full Windows x64 MSI installer.' >&2
+            exit 1
+          fi
+          cp "$windows_msi" release-assets/
+
+          find downloads/debian -type f -name '*.deb' -exec cp {} debian-bundle/ \;
+          test -n "$(find debian-bundle -type f -name '*.deb' -print -quit)"
+          cat > debian-bundle/README-INSTALL.txt <<'EOF'
+          LibreOfficeDev Extras — Debian x86_64 packages
+
+          Extract this archive and run the following from the extracted directory:
+
+            sudo apt install ./*.deb
+          EOF
+          tar -C debian-bundle -cJf release-assets/LibreOfficeDev-VSDX-Debian-amd64.tar.xz .
+
+          (cd release-assets && sha256sum \
+            LibreOfficeDev-Draw-VSDX-macOS-arm64.zip \
+            LibreOfficeDev-Draw-VSDX-macOS-x86_64.zip \
+            LibreOfficeDev_26.8.0.3_Win_x86-64.msi \
+            LibreOfficeDev-VSDX-Windows-x64.zip \
+            LibreOfficeDev-VSDX-Debian-amd64.tar.xz \
+            LibreOfficeDev-VSDX-x86_64.AppImage \
+            LibreOfficeDev-VSDX-x86_64.flatpak \
+            libreoffice-vsdx_0+git.${SOURCE_SHA:0:14}_amd64.snap > SHA256SUMS.txt)
+          test "$(find release-assets -maxdepth 1 -type f | wc -l)" -eq 9
+
+      - name: Create or update the release
+        id: release
+        shell: bash
+        env:
+          TAG_NAME: ${{ steps.source.outputs.tag_name }}
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          version="${TAG_NAME#libreoffice-}"
+          version="${version%-extras.*}"
+          title="LibreOffice ${version} Extras"
+          notes="$RUNNER_TEMP/release-notes.md"
+          cat > "$notes" <<EOF
+          LibreOffice ${version} Extras adds Draw smart guides and VSDX export, with the Tabbed interface, Light appearance, and neutral toolbar defaults for new profiles.
+
+          Source commit: `$SOURCE_SHA` on `$BUILD_BRANCH`.
+
+          This release was assembled automatically after all six platform build workflows completed successfully. It includes only end-user downloads; `SHA256SUMS.txt` covers every download.
+          EOF
+
+          if ! gh release view "$TAG_NAME" --repo "$REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$TAG_NAME" \
+              --repo "$REPOSITORY" \
+              --verify-tag \
+              --draft \
+              --prerelease \
+              --title "$title" \
+              --notes-file "$notes"
+          fi
+
+          for file in release-assets/*; do
+            gh release upload "$TAG_NAME" "$file" --repo "$REPOSITORY" --clobber
+            asset_name="$(basename "$file")"
+            expected_size="$(stat -c '%s' "$file")"
+            actual="$(gh api --cache 0s "repos/$REPOSITORY/releases/tags/$TAG_NAME" --jq ".assets[] | select(.name == \"$asset_name\") | [.size,.state] | @tsv")"
+            actual_size="${actual%%$'\t'*}"
+            actual_state="${actual#*$'\t'}"
+            test "$actual_state" = uploaded
+            test "$actual_size" = "$expected_size"
+          done
+
+          gh release edit "$TAG_NAME" \
+            --repo "$REPOSITORY" \
+            --draft=false \
+            --prerelease \
+            --title "$title" \
+            --notes-file "$notes"
+          gh release view "$TAG_NAME" --repo "$REPOSITORY" --json url,isDraft,isPrerelease
