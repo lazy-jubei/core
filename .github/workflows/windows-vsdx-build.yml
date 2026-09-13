@@ -535,10 +535,17 @@ jobs:
         run: |
           set -euxo pipefail
           unset MSYSTEM INCLUDE UCRTVersion
-          # 'make install' re-runs ooinstall, which reads the package
-          # file lists (now extended with the Aptos fonts) at install
-          # time, so the regenerated MSI contains the fonts.
-          make MSYSTEM= install 2>&1 | tee install.log
+          # The MSI is NOT built by 'make install' (that target is
+          # ooinstall, the simple install set) — the MSI comes from the
+          # gbuild MSI-installer targets, which are separate from the
+          # 'build' goal (only the msi_templates subdirs run during the
+          # build). Build them explicitly via the install phony (which
+          # depends on instsetoo_installer_targets -> call_installer.sh).
+          # The installer re-reads the package file lists (now extended
+          # with the Aptos fonts) at install time, so the regenerated MSI
+          # contains the fonts. instsetoo_wipe (an order-only prereq)
+          # clears workdir/installation first, so this is a clean rebuild.
+          make MSYSTEM= -j3 workdir/CustomTarget/instsetoo_native/install/install.phony 2>&1 | tee install.log
           find workdir/installation -type f -name '*.msi'
 
       - name: Verify the MSI contains the bundled fonts
