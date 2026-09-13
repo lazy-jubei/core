@@ -52,9 +52,13 @@ jobs:
           sudo apt-get update
           sudo apt-get build-dep -y libreoffice
           read -r -a packaging_tools <<< "$PACKAGING_TOOLS"
+          # Pre-accept the Microsoft fonts EULA: otherwise the postinst
+          # tries to present it interactively, which the noninteractive
+          # debconf frontend blocks ("license could not be presented")
+          # and the fonts are silently not downloaded.
+          printf 'ttf-mscorefonts-installer mscorefonts-eula boolean true\n' | sudo debconf-set-selections
           # ttf-mscorefonts-installer downloads the Microsoft core fonts
-          # (Arial, Times New Roman, Verdana, ...) from SourceForge; the
-          # postinst accepts the EULA non-interactively.
+          # (Arial, Times New Roman, Verdana, ...) from SourceForge.
           sudo apt-get install -y ccache fakeroot file pax-utils ttf-mscorefonts-installer "${packaging_tools[@]}"
           sudo apt-get clean
 
