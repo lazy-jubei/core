@@ -518,7 +518,7 @@ jobs:
           $marker = '/share/fonts/truetype/'
           $markerIndex = $firstLine.IndexOf($marker)
           if ($markerIndex -lt 0) {
-            throw "Could not derive the instdir prefix from $filelist: $firstLine"
+            throw "Could not derive the instdir prefix from ${filelist}: ${firstLine}"
           }
           $instRoot = $firstLine.Substring(0, $markerIndex)
           foreach ($font in (Get-ChildItem -Path $aptosDirectory -File |
