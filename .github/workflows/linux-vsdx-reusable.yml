@@ -53,16 +53,26 @@ jobs:
           sudo apt-get build-dep -y libreoffice
           read -r -a packaging_tools <<< "$PACKAGING_TOOLS"
           # Pre-accept the Microsoft fonts EULA. The msttcorefonts preinst
-          # skips the interactive EULA presentation, and the postinst only
-          # downloads the fonts, when debconf item
+          # skips the interactive EULA presentation, and the download hook +
+          # postinst only fetch the fonts, when debconf item
           # msttcorefonts/accepted-mscorefonts-eula is "true"; under the
           # noninteractive frontend any other value makes the postinst skip
-          # (and remove) the fonts. The owner is the source package
-          # msttcorefonts, not the binary ttf-mscorefonts-installer.
-          printf 'msttcorefonts accepted-mscorefonts-eula boolean true\n' | sudo debconf-set-selections
+          # (and remove) the fonts. debconf-set-selections takes the item
+          # as the full "package/item" key and the owner as the binary
+          # package, so the owner is ttf-mscorefonts-installer.
+          printf 'ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula boolean true\n' | sudo debconf-set-selections
           # ttf-mscorefonts-installer downloads the Microsoft core fonts
           # (Arial, Times New Roman, Verdana, ...) from SourceForge.
           sudo apt-get install -y ccache fakeroot file pax-utils ttf-mscorefonts-installer "${packaging_tools[@]}"
+          # Insurance: if the fonts did not materialize (e.g. the pre-seed
+          # value did not survive the debconf template load), the package is
+          # now installed so the key exists and the value will stick;
+          # re-assert it and re-run the maintainer scripts to trigger the
+          # download.
+          if [ -z "$(find /usr/share/fonts/truetype/msttcorefonts -maxdepth 1 -name '*.ttf' -print -quit)" ]; then
+            printf 'ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula boolean true\n' | sudo debconf-set-selections
+            sudo dpkg-reconfigure -f noninteractive ttf-mscorefonts-installer
+          fi
           sudo apt-get clean
 
       - name: Download Microsoft Aptos fonts
