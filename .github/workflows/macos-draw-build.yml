@@ -132,19 +132,32 @@ jobs:
           apps=("$RUNNER_TEMP/mac-install/"*.app)
           test "${#apps[@]}" -eq 1
           app="${apps[0]}"
-          # The LO home is the directory that contains BOTH a program/
-          # subdirectory and a share/ subdirectory. Anchoring on those two
-          # directories (rather than on soffice.bin, which is a symlink in
-          # the bundle and so is missed by 'find -type f') is robust to
-          # bundle layout changes and to a launcher copy in Contents/MacOS.
+          # The LO home is the directory that contains BOTH a program/ and
+          # a share/ subdirectory. In the macOS bundle 'program' and
+          # 'soffice.bin' are SYMLINKS, so 'find -type d' (and 'find -type
+          # f') miss them. Anchor by NAME (which matches a symlink or a
+          # regular file), using the grandparent of soffice.bin (it lives
+          # in <home>/program/) as the primary and the parent of 'program'
+          # as a fallback, and pick the candidate that also has a share/.
+          # This stays robust to bundle layout changes and to a stray
+          # soffice.bin copy in Contents/MacOS.
           lo_home=''
-          while IFS= read -r pdir; do
-            home="$(dirname "$pdir")"
+          while IFS= read -r binpath; do
+            home="$(dirname "$(dirname "$binpath")")"
             if [ -d "$home/share" ]; then
               lo_home="$home"
               break
             fi
-          done < <(find "$app" -type d -name program)
+          done < <(find "$app" -name 'soffice.bin' 2>/dev/null)
+          if [ -z "$lo_home" ]; then
+            while IFS= read -r pdir; do
+              home="$(dirname "$pdir")"
+              if [ -d "$home/share" ]; then
+                lo_home="$home"
+                break
+              fi
+            done < <(find "$app" -name 'program' 2>/dev/null)
+          fi
           test -n "$lo_home"
           # macOS scans this directory's top-level files only, so the
           # fonts must sit flat in it.
