@@ -198,9 +198,10 @@ jobs:
           patch_root="$(mktemp -d)"
           dpkg-deb --extract "$main_deb" "$patch_root"
           # --extract pulls only the data section; --build also needs the
-          # control section, so extract it into DEBIAN/.
+          # control section, so extract it into DEBIAN/ (dpkg-deb -e writes
+          # control, md5sums, and maintainer scripts to the directory).
           mkdir -p "$patch_root/DEBIAN"
-          dpkg-deb --ctrl-tarfile "$main_deb" - | tar -xf - -C "$patch_root/DEBIAN"
+          dpkg-deb -e "$main_deb" "$patch_root/DEBIAN"
           lo_dir="$(dirname "$(dirname "$(find "$patch_root" -type f -path '*/program/soffice.bin' -print -quit)")")"
           mkdir -p "$lo_dir/share/fonts/truetype/msttcorefonts"
           cp -f "$fonts_dir"/*.ttf "$lo_dir/share/fonts/truetype/msttcorefonts/"
