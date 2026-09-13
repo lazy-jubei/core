@@ -105,6 +105,10 @@ jobs:
             'snap-vsdx-build.yml:SNAP_RUN_ID'
           )
 
+          # Tolerate transient API errors (rate limit 403/429): on failure the
+          # output is empty, so the run is treated as "not ready yet" and the
+          # loop waits another 60s and retries instead of aborting the publish
+          # under `set -e` (this is what killed a previous publish mid-wait).
           find_run() {
             local workflow_file="$1"
             gh run list \
@@ -114,7 +118,8 @@ jobs:
               --commit "$SOURCE_SHA" \
               --limit 20 \
               --json databaseId,status,conclusion \
-              --jq 'sort_by(.databaseId) | last // empty | [.databaseId,.status,.conclusion] | @tsv'
+              --jq 'sort_by(.databaseId) | last // empty | [.databaseId,.status,.conclusion] | @tsv' \
+              || true
           }
 
           for attempt in $(seq 1 360); do
