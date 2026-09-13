@@ -180,10 +180,16 @@ jobs:
           test -n "$(find "$aptos_dir" -maxdepth 1 -name 'Aptos.ttf' -print -quit)"
           # Patch the package that carries the LO home (share/ lives there);
           # the AppImage/Flatpak/snap bundles are extracted from these
-          # debs, so they inherit the fonts as well.
+          # debs, so they inherit the fonts as well. Mark the home by the
+          # soffice.bin binary (only the home package has it). Capture the
+          # full file list first: with `set -o pipefail`,
+          # `dpkg-deb -c | grep -q` false-negatives on large packages (grep
+          # exits early -> SIGPIPE on dpkg-deb), which made it pick the
+          # wrong (debian-menus) deb.
           main_deb=''
           for candidate in artifacts/deb/*.deb; do
-            if dpkg-deb -c "$candidate" | grep -q 'program/soffice'; then
+            listing="$(dpkg-deb -c "$candidate" 2>/dev/null || true)"
+            if [[ "$listing" == *"program/soffice.bin"* ]]; then
               main_deb="$candidate"
               break
             fi
@@ -191,7 +197,11 @@ jobs:
           test -n "$main_deb"
           patch_root="$(mktemp -d)"
           dpkg-deb --extract "$main_deb" "$patch_root"
-          lo_dir="$(dirname "$(dirname "$(find "$patch_root" -type f -path '*/program/soffice' -print -quit)")")"
+          # --extract pulls only the data section; --build also needs the
+          # control section, so extract it into DEBIAN/.
+          mkdir -p "$patch_root/DEBIAN"
+          dpkg-deb --ctrl-tarfile "$main_deb" - | tar -xf - -C "$patch_root/DEBIAN"
+          lo_dir="$(dirname "$(dirname "$(find "$patch_root" -type f -path '*/program/soffice.bin' -print -quit)")")"
           mkdir -p "$lo_dir/share/fonts/truetype/msttcorefonts"
           cp -f "$fonts_dir"/*.ttf "$lo_dir/share/fonts/truetype/msttcorefonts/"
           # Aptos ships as a single flat directory, so keep it flat: LO
