@@ -26,7 +26,7 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-24.04
-    timeout-minutes: 360
+    timeout-minutes: 540
     env:
       GH_TOKEN: ${{ github.token }}
       REPOSITORY: ${{ github.repository }}
@@ -122,7 +122,7 @@ jobs:
               || true
           }
 
-          for attempt in $(seq 1 360); do
+          for attempt in $(seq 1 540); do
             pending=0
             for spec in "${workflows[@]}"; do
               workflow_file="${spec%%:*}"
@@ -151,7 +151,7 @@ jobs:
             if [[ "$pending" -eq 0 ]]; then
               break
             fi
-            if [[ "$attempt" -eq 360 ]]; then
+            if [[ "$attempt" -eq 540 ]]; then
               echo 'Timed out waiting for all platform builds.' >&2
               exit 1
             fi
