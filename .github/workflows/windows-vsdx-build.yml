@@ -571,12 +571,17 @@ jobs:
             if (($rc -ne 0) -or ($safety -gt 200000)) { break }
             if ($view.StringData(1) -like 'Aptos*') { $count++ }
           }
-          $view.Close()
-          $db.Close()
+          # Report the count and enforce the threshold BEFORE the COM
+          # cleanup: the legacy WindowsInstaller COM object does not
+          # always expose Close via IDispatch, so a cleanup error must
+          # not be able to mask a successful verification.
           Write-Output "Aptos files in the main MSI: $count"
           if ($count -lt 20) {
             throw "Expected at least 20 Aptos files in the main MSI, found $count."
           }
+          # Best-effort cleanup (may throw on a late-bound COM object).
+          try { $view.Close() } catch {}
+          try { $db.Close() } catch {}
 
       - name: Collect the Windows installer
         shell: pwsh
