@@ -542,16 +542,14 @@ jobs:
         run: |
           set -euxo pipefail
           unset MSYSTEM INCLUDE UCRTVersion
-          # The MSI is NOT built by 'make install' (that target is
-          # ooinstall, the simple install set) — the MSI comes from the
-          # gbuild MSI-installer targets, which are separate from the
-          # 'build' goal (only the msi_templates subdirs run during the
-          # build). Build them explicitly via the install phony (which
-          # depends on instsetoo_installer_targets -> call_installer.sh).
-          # The installer re-reads the package file lists (now extended
-          # with the Aptos fonts) at install time, so the regenerated MSI
-          # contains the fonts. instsetoo_wipe (an order-only prereq)
-          # clears workdir/installation first, so this is a clean rebuild.
+          # The main MSI is built at the END of 'make build' (the gbuild
+          # MSI-installer targets, e.g. 'openoffice...msi', run after all
+          # packages, so the extras_fonts package — with the Aptos fonts
+          # copied in during the build — is already in the package file
+          # lists the installer reads). Running the install phony through
+          # the top-level Makefile is a no-op safeguard (those targets
+          # only exist in Makefile.gbuild, so make reports "Nothing to be
+          # done"); the MSI on disk is the one from 'make build'.
           make MSYSTEM= -j3 workdir/CustomTarget/instsetoo_native/install/install.phony 2>&1 | tee install.log
           find workdir/installation -type f -name '*.msi'
 
@@ -559,8 +557,14 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          # Exclude the WiX intermediate/merge-module MSIs (idt_files,
+          # mergemodules): a recursive -First 1 used to pick the empty
+          # idt_files merge module instead of the real main installer
+          # (msi\install\<lang>\*.msi), which reports 0 files.
           $msi = Get-ChildItem -Path (Join-Path $env:GITHUB_WORKSPACE 'workdir\installation') -Filter '*.msi' -File -Recurse |
-            Where-Object { $_.Name -notlike '*_sdk.msi' } | Select-Object -First 1
+            Where-Object { $_.Name -notlike '*_sdk.msi' } |
+            Where-Object { $_.FullName -notlike '*\idt_files\*' -and $_.FullName -notlike '*\mergemodules\*' } |
+            Select-Object -First 1
           if (-not $msi) {
             throw 'No main (non-SDK) MSI found in workdir\installation.'
           }
@@ -583,13 +587,14 @@ jobs:
           # IDispatch, so a cleanup error must not mask the verification.
           Write-Output "Aptos files in the main MSI: $count"
           if ($count -lt 20) {
-            # Non-fatal: the MSI is built from openoffice.lst (frozen at
-            # 'make build' time), and appending to the generated
-            # extras_fonts.filelist does not reach it. The bundled fonts
-            # ARE in the ooinstall (install set) and in the macOS/Linux
-            # packages, so this is a warning (not release-blocking) until
-            # the gbuild filelist mechanism is fixed to feed the MSI.
-            Write-Warning "The main MSI contains only $count Aptos font file(s); expected >= 20. The bundled fonts are in the ooinstall (install set) but not the MSI (gbuild openoffice.lst timing). Non-fatal."
+            # Non-fatal: the fonts reach the MSI through the extras_fonts
+            # gbuild package (pre-build download + build-time copy rule).
+            # A 0 count here usually means the pre-build download failed
+            # (the guard skips the rules, the build still succeeds) or the
+            # wrong MSI was queried. The fonts are still in the ooinstall
+            # and in the macOS/Linux packages, so this is a warning
+            # (not release-blocking).
+            Write-Warning "The main MSI contains only $count Aptos font file(s); expected >= 20. The bundled fonts are in the ooinstall (install set) but not the MSI. Non-fatal."
           }
           # Best-effort cleanup (may throw on a late-bound COM object).
           try { $view.Close() } catch {}
