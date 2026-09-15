@@ -568,37 +568,31 @@ jobs:
           if (-not $msi) {
             throw 'No main (non-SDK) MSI found in workdir\installation.'
           }
-          # Query the File table through the Windows Installer COM API so a
-          # stale or failed regeneration (MSI without the fonts) fails the build.
-          $installer = New-Object -ComObject WindowsInstaller.Installer
-          $db = $installer.OpenDatabase($msi.FullName, 0)
-          $view = $db.OpenView('SELECT File FROM File')
-          $view.Execute()
-          $count = 0
-          $safety = 0
-          while ($true) {
-            $rc = $view.Fetch(1)
-            $safety++
-            if (($rc -ne 0) -or ($safety -gt 200000)) { break }
-            if ($view.StringData(1) -like 'Aptos*') { $count++ }
-          }
-          # Report the count BEFORE the COM cleanup: the legacy
-          # WindowsInstaller COM object does not always expose Close via
-          # IDispatch, so a cleanup error must not mask the verification.
+          Write-Output "Verifying MSI: $($msi.FullName) ($([math]::Round($msi.Length / 1MB, 1)) MB)"
+          # The WindowsInstaller COM File-table query proved unreliable on
+          # this installer (it reported 0 files for the 210 MB main MSI
+          # that demonstrably contains the fonts), so verify by extracting
+          # the package instead: 'msiexec /a' is an administrative install
+          # that unpacks all files without installing. Its exit code can
+          # be non-zero (custom actions), so only the extracted file set
+          # is authoritative.
+          $extractDir = Join-Path $env:RUNNER_TEMP 'msi-verify-extract'
+          New-Item -ItemType Directory -Path $extractDir -Force | Out-Null
+          & msiexec /a "$($msi.FullName)" /qn "TARGETDIR=$extractDir" | Out-Null
+          $count = @(Get-ChildItem -Path $extractDir -Filter 'Aptos*.ttf' -File -Recurse).Count
           Write-Output "Aptos files in the main MSI: $count"
           if ($count -lt 20) {
             # Non-fatal: the fonts reach the MSI through the extras_fonts
             # gbuild package (pre-build download + build-time copy rule).
             # A 0 count here usually means the pre-build download failed
             # (the guard skips the rules, the build still succeeds) or the
-            # wrong MSI was queried. The fonts are still in the ooinstall
-            # and in the macOS/Linux packages, so this is a warning
+            # extraction failed. The fonts are still in the ooinstall and
+            # in the macOS/Linux packages, so this is a warning
             # (not release-blocking).
             Write-Warning "The main MSI contains only $count Aptos font file(s); expected >= 20. The bundled fonts are in the ooinstall (install set) but not the MSI. Non-fatal."
           }
-          # Best-effort cleanup (may throw on a late-bound COM object).
-          try { $view.Close() } catch {}
-          try { $db.Close() } catch {}
+          # Best-effort cleanup of the (large) extraction.
+          try { Remove-Item -LiteralPath $extractDir -Recurse -Force -ErrorAction SilentlyContinue } catch {}
 
       - name: Collect the Windows installer
         shell: pwsh
