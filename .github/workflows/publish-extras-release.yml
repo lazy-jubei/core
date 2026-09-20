@@ -164,8 +164,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p downloads/{macos-arm64,macos-x86_64,windows-portable,windows-msi,debian,appimage,flatpak,snap}
-          gh run download "$MACOS_RUN_ID" --repo "$REPOSITORY" --name LibreOfficeDev-Draw-VSDX-macOS-arm64 --dir downloads/macos-arm64
-          gh run download "$MACOS_RUN_ID" --repo "$REPOSITORY" --name LibreOfficeDev-Draw-VSDX-macOS-x86_64 --dir downloads/macos-x86_64
+          gh run download "$MACOS_RUN_ID" --repo "$REPOSITORY" --name LibreOffice-Draw-VSDX-macOS-arm64 --dir downloads/macos-arm64
+          gh run download "$MACOS_RUN_ID" --repo "$REPOSITORY" --name LibreOffice-Draw-VSDX-macOS-x86_64 --dir downloads/macos-x86_64
           gh run download "$WINDOWS_RUN_ID" --repo "$REPOSITORY" --name LibreOfficeDev-VSDX-Windows-x64 --dir downloads/windows-portable
           gh run download "$WINDOWS_RUN_ID" --repo "$REPOSITORY" --name LibreOfficeDev-VSDX-Windows-x64-MSI --dir downloads/windows-msi
           gh run download "$DEBIAN_RUN_ID" --repo "$REPOSITORY" --name LibreOfficeDev-VSDX-Debian-x86_64 --dir downloads/debian
@@ -194,8 +194,8 @@ jobs:
             cp "$source" "release-assets/$destination"
           }
 
-          copy_one LibreOfficeDev-Draw-VSDX-macOS-arm64.zip downloads/macos-arm64 -name '*.zip'
-          copy_one LibreOfficeDev-Draw-VSDX-macOS-x86_64.zip downloads/macos-x86_64 -name '*.zip'
+          copy_one LibreOffice-Draw-VSDX-macOS-arm64.zip downloads/macos-arm64 -name '*.zip'
+          copy_one LibreOffice-Draw-VSDX-macOS-x86_64.zip downloads/macos-x86_64 -name '*.zip'
           copy_one LibreOfficeDev-VSDX-Windows-x64.zip downloads/windows-portable -name '*.zip'
           copy_one LibreOfficeDev-VSDX-x86_64.AppImage downloads/appimage -name '*.AppImage'
           copy_one LibreOfficeDev-VSDX-x86_64.flatpak downloads/flatpak -name '*.flatpak'
@@ -221,8 +221,8 @@ jobs:
           tar -C debian-bundle -cJf release-assets/LibreOfficeDev-VSDX-Debian-amd64.tar.xz .
 
           (cd release-assets && sha256sum \
-            LibreOfficeDev-Draw-VSDX-macOS-arm64.zip \
-            LibreOfficeDev-Draw-VSDX-macOS-x86_64.zip \
+            LibreOffice-Draw-VSDX-macOS-arm64.zip \
+            LibreOffice-Draw-VSDX-macOS-x86_64.zip \
             "$msi_name" \
             LibreOfficeDev-VSDX-Windows-x64.zip \
             LibreOfficeDev-VSDX-Debian-amd64.tar.xz \
