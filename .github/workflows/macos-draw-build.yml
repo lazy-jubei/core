@@ -77,11 +77,13 @@ jobs:
             # Use the system/base header level recommended by configure for Clang.
             extra_config+=(--enable-pch=base)
           fi
+          # configure appends "Dev" to the product name unless a release
+          # build is requested; together these yield plain "LibreOffice".
+          # (A comment line inside the \ continuation below would silently
+          # terminate the command, so keep it above.)
           ./autogen.sh \
             ${extra_config[@]+"${extra_config[@]}"} \
             --disable-debug \
-            # configure appends "Dev" to the product name unless a release
-            # build is requested; together these yield plain "LibreOffice".
             --with-product-name=LibreOffice \
             --enable-release-build \
             --without-java \
