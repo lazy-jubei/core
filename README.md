@@ -38,14 +38,14 @@ preserved visually.
 When you download the .zip from the web, macOS
 quarantines it, and the first launch attempt may fail with:
 
-    “LibreOfficeDev” is damaged and can't be opened.
+    “LibreOffice” is damaged and can't be opened.
     You should move it to the Trash.
 
 This is expected, I do not sign it with a developer account.
 Fix it with one command, using the path to the extracted
 app:
 
-    xattr -cr /path/to/LibreOfficeDev.app
+    xattr -cr /path/to/LibreOffice.app
 
 Then place it in your Applications folder.
 
