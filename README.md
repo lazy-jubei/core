@@ -33,6 +33,21 @@ Shape groups are flattened to individual shapes; and connector
 glue/topology is not retained, even though the routed paths are
 preserved visually.
 
+## macOS: "app is damaged" on first launch
+
+When you download the .zip from the web, macOS
+quarantines it, and the first launch attempt may fail with:
+
+    “LibreOfficeDev” is damaged and can't be opened.
+    You should move it to the Trash.
+
+This is expected, I do not sign it with a developer account.
+Fix it with one command, using the path to the extracted
+app:
+
+    xattr -cr /path/to/LibreOfficeDev.app
+
+Then place it in your Applications folder.
 
 # LibreOffice
 [![Coverity Scan Build Status](https://scan.coverity.com/projects/211/badge.svg)](https://scan.coverity.com/projects/211) [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/307/badge)](https://www.bestpractices.dev/projects/307) [![Translation status](https://weblate.documentfoundation.org/widgets/libo_ui-master/-/svg-badge.svg)](https://weblate.documentfoundation.org/engage/libo_ui-master/?utm_source=widget)
