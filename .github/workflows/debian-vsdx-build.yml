@@ -3,7 +3,7 @@ name: Debian VSDX package
 on:
   workflow_dispatch:
   push:
-    branches: [libreoffice-26-8-0-extras]
+    branches: [libreoffice-26-8-1-extras]
 
 permissions:
   contents: read

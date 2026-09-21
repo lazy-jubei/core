@@ -2,7 +2,7 @@ name: Publish Extras release
 
 on:
   push:
-    branches: [libreoffice-26-8-0-extras]
+    branches: [libreoffice-26-8-1-extras]
     tags:
       - 'libreoffice-*-extras.*'
   workflow_dispatch:
@@ -30,7 +30,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       REPOSITORY: ${{ github.repository }}
-      BUILD_BRANCH: libreoffice-26-8-0-extras
+      BUILD_BRANCH: libreoffice-26-8-1-extras
 
     steps:
       - name: Check out the tagged source
